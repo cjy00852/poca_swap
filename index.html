@@ -1,0 +1,72 @@
+<!doctype html>
+<html lang="ko">
+<head>
+  <meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover">
+  <title>포카 교환기 BETA</title>
+  <meta name="description" content="현장에서 빠르게 포토카드를 등록하고 서로 맞는 교환 상대를 찾는 베타 버전">
+  <link rel="icon" type="image/svg+xml" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 64 64'%3E%3Crect width='64' height='64' rx='16' fill='%2313151a'/%3E%3Crect x='14' y='10' width='26' height='36' rx='5' fill='%23ff4f91'/%3E%3Crect x='24' y='18' width='26' height='36' rx='5' fill='%23fff' stroke='%2313151a' stroke-width='3'/%3E%3Cpath d='M30 38l6-7 5 5 4-4' fill='none' stroke='%23ff4f91' stroke-width='3'/%3E%3C/svg%3E">
+  <style>
+    :root{--ink:#17171c;--muted:#73737f;--paper:#fff;--bg:#f5f4f7;--pink:#ff4f91;--pink2:#ff82ae;--line:#e9e7ed;--green:#20b77a;--shadow:0 14px 40px #2a183012}
+    *{box-sizing:border-box} body{margin:0;background:var(--bg);color:var(--ink);font-family:system-ui,-apple-system,"Noto Sans KR",sans-serif;font-size:16px}
+    button,input{font:inherit} button{cursor:pointer} .app{max-width:520px;margin:auto;min-height:100dvh;background:var(--paper);padding-bottom:110px;box-shadow:var(--shadow)}
+    header{position:sticky;top:0;z-index:10;background:#fffdfdcc;border-bottom:1px solid var(--line);backdrop-filter:blur(14px);padding:14px 18px 12px}
+    .top{display:flex;align-items:center;justify-content:space-between}.brand{font-weight:950;font-size:1.25rem;letter-spacing:-.04em}.beta{font-size:.68rem;padding:3px 7px;border-radius:999px;background:var(--ink);color:white;vertical-align:3px}
+    .online{font-size:.78rem;color:var(--muted)}.dot{display:inline-block;width:8px;height:8px;border-radius:50%;background:var(--green);margin-right:5px}
+    nav{display:grid;grid-template-columns:repeat(3,1fr);gap:6px;margin-top:12px;background:#f2f1f4;padding:4px;border-radius:14px}
+    nav button{border:0;background:transparent;padding:10px 5px;border-radius:11px;color:var(--muted);font-weight:800}.active{background:white!important;color:var(--ink)!important;box-shadow:0 2px 8px #2221}
+    main{padding:18px}.section{display:none}.section.active-section{display:block}.welcome{display:flex;gap:12px;align-items:center;margin:2px 0 20px}.avatar{width:46px;height:46px;border-radius:50%;display:grid;place-items:center;background:linear-gradient(135deg,#ff75a8,#ffdf77);font-size:1.35rem}.welcome b{display:block}.welcome small{color:var(--muted)}
+    h2{font-size:1.1rem;margin:20px 0 12px;letter-spacing:-.02em}.seg{display:grid;grid-template-columns:1fr 1fr;gap:8px}.seg button{border:1px solid var(--line);background:white;border-radius:14px;padding:13px;font-weight:850}.seg button.on{border-color:var(--pink);background:#fff3f7;color:#d92f72}
+    .cards{display:grid;grid-template-columns:repeat(3,1fr);gap:10px}.card{position:relative;border:2px solid transparent;background:#f6f5f7;border-radius:15px;padding:7px;text-align:left;transition:.15s}.card.sel{border-color:var(--pink);background:#fff1f6;transform:translateY(-2px)}.ph{aspect-ratio:3/4;border-radius:10px;overflow:hidden;background:#e9e7ed}.ph img{width:100%;height:100%;display:block;object-fit:cover}.card strong{display:block;font-size:.86rem;margin:7px 2px 1px}.card small{display:block;color:var(--muted);font-size:.72rem;margin:0 2px 3px}.check{display:none;position:absolute;right:4px;top:4px;width:23px;height:23px;border-radius:50%;place-items:center;background:var(--pink);color:white;font-weight:900}.sel .check{display:grid}
+    .sticky{position:fixed;left:50%;bottom:0;transform:translateX(-50%);width:min(520px,100%);padding:12px 18px calc(12px + env(safe-area-inset-bottom));background:#fffd;border-top:1px solid var(--line);backdrop-filter:blur(12px);z-index:20}.primary{width:100%;border:0;border-radius:15px;padding:15px;background:var(--ink);color:white;font-weight:900}.primary:disabled{opacity:.35}
+    .match{border:1px solid var(--line);border-radius:18px;padding:15px;margin-bottom:12px}.match-top{display:flex;align-items:center;gap:10px}.match-top .avatar{width:40px;height:40px}.match-top div:nth-child(2){flex:1}.perfect{color:#d92f72;background:#fff0f6;border-radius:999px;padding:5px 8px;font-size:.72rem;font-weight:900}.swapline{display:grid;grid-template-columns:1fr 28px 1fr;align-items:center;margin-top:14px;gap:5px}.mini{background:#f6f5f7;border-radius:12px;padding:9px;font-size:.78rem}.mini b{display:block;margin-bottom:3px}.arrow{text-align:center}.actions{display:flex;gap:8px;margin-top:12px}.actions button{flex:1;border:1px solid var(--line);background:white;padding:11px;border-radius:12px;font-weight:850}.actions .here{background:var(--pink);border-color:var(--pink);color:white}
+    .empty{text-align:center;padding:64px 22px;color:var(--muted)}.empty i{display:block;font-style:normal;font-size:3rem}.overlay{display:none;position:fixed;inset:0;z-index:50;background:var(--pink);color:white;place-items:center;text-align:center;padding:25px}.overlay.show{display:grid}.overlay h1{font-size:2.5rem;margin:10px}.overlay p{font-size:1.15rem}.overlay button{margin-top:25px;border:2px solid white;background:transparent;color:white;padding:12px 24px;border-radius:99px;font-weight:900}
+    .nick{display:flex;gap:8px}.nick input{min-width:0;flex:1;border:1px solid var(--line);border-radius:13px;padding:13px}.notice{font-size:.79rem;color:var(--muted);background:#f7f6f8;padding:12px;border-radius:12px;margin-top:12px}.toast{position:fixed;left:50%;bottom:95px;transform:translate(-50%,20px);opacity:0;background:#17171c;color:white;padding:10px 16px;border-radius:999px;font-size:.85rem;transition:.2s;z-index:60}.toast.show{opacity:1;transform:translate(-50%,0)}
+  </style>
+</head>
+<body><div class="app">
+  <header><div class="top"><div class="brand">포카 교환기 <span class="beta">BETA</span></div><div class="online"><span class="dot"></span><span id="count">12</span>명 교환 중</div></div>
+    <nav><button class="active" data-tab="register">내 포카</button><button data-tab="matches">매칭 <span id="badge">3</span></button><button data-tab="mine">내 현황</button></nav>
+  </header>
+  <main>
+    <section id="register" class="section active-section">
+      <div class="welcome"><div class="avatar">🌸</div><div><b id="hello">현장교환러님</b><small>교환할 포카를 눌러주세요</small></div></div>
+      <div class="nick"><input id="nick" maxlength="10" value="현장교환러" aria-label="닉네임"><button onclick="saveNick()" class="primary" style="width:auto;padding-inline:18px">저장</button></div>
+      <h2>무엇을 고를까요?</h2><div class="seg"><button class="on" data-mode="give">내놓아요 <span id="giveN">0</span></button><button data-mode="want">구해요 <span id="wantN">0</span></button></div>
+      <h2 id="modeTitle">내놓을 포카</h2><div class="cards" id="cards"></div>
+      <div class="notice">베타에서는 선택 내용이 이 기기에만 저장됩니다. 실제 다중 사용자 연결은 다음 단계에서 붙일 수 있어요.</div>
+    </section>
+    <section id="matches" class="section"><h2 style="margin-top:2px">딱 맞는 교환 상대</h2><div id="matchList"></div></section>
+    <section id="mine" class="section"><h2 style="margin-top:2px">내 교환 현황</h2><div id="summary"></div></section>
+  </main>
+  <div class="sticky"><button id="mainBtn" class="primary" disabled>포카를 선택해주세요</button></div>
+</div>
+<div class="overlay" id="overlay"><div><div style="font-size:4rem">🙋🏻‍♀️</div><h1 id="bigNick">현장교환러</h1><p>저 여기 있어요!<br>포카 교환하러 왔습니다</p><button onclick="overlay.classList.remove('show')">화면 닫기</button></div></div>
+<div class="toast" id="toast"></div>
+<script>
+const data=[
+ {id:1,name:"포카 1",ver:"Scent Archive",img:"images/poca_01.jpg"},
+ {id:2,name:"포카 2",ver:"Scent Archive",img:"images/poca_02.jpg"},
+ {id:3,name:"포카 3",ver:"Scent Archive",img:"images/poca_03.jpg"},
+ {id:4,name:"포카 4",ver:"Scent Archive",img:"images/poca_04.jpg"},
+ {id:5,name:"포카 5",ver:"Scent Archive",img:"images/poca_05.jpg"}
+];
+let state=JSON.parse(localStorage.getItem("pocaBeta")||'{"give":[],"want":[],"done":[]}');let mode="give";
+const $=s=>document.querySelector(s), $$=s=>[...document.querySelectorAll(s)];
+function renderCards(){cards.innerHTML=data.map(x=>`<button class="card ${state[mode].includes(x.id)?"sel":""}" onclick="pick(${x.id})" aria-label="${x.name} ${x.ver}"><span class="check">✓</span><div class="ph"><img src="${x.img}" alt="${x.name}"></div><strong>${x.name}</strong><small>${x.ver}</small></button>`).join("");giveN.textContent=state.give.length;wantN.textContent=state.want.length;mainBtn.disabled=!state.give.length||!state.want.length;mainBtn.textContent=state.give.length&&state.want.length?"매칭 확인하기":(mode==="give"?"내놓을 포카를 선택해주세요":"구할 포카를 선택해주세요");}
+function pick(id){let a=state[mode];state[mode]=a.includes(id)?a.filter(x=>x!==id):[...a,id];save();renderCards()}
+function save(){localStorage.setItem("pocaBeta",JSON.stringify(state))}
+$$("[data-mode]").forEach(b=>b.onclick=()=>{$$("[data-mode]").forEach(x=>x.classList.remove("on"));b.classList.add("on");mode=b.dataset.mode;modeTitle.textContent=mode==="give"?"내놓을 포카":"구하는 포카";renderCards()});
+$$("nav button").forEach(b=>b.onclick=()=>showTab(b.dataset.tab));
+function showTab(id){$$("nav button").forEach(x=>x.classList.toggle("active",x.dataset.tab===id));$$(".section").forEach(x=>x.classList.toggle("active-section",x.id===id));renderMatches();renderSummary()}
+mainBtn.onclick=()=>showTab("matches");
+const sample=[{n:"원이짱",a:"💿",g:2,w:1},{n:"향기수집가",a:"🌷",g:3,w:2},{n:"리센느럽",a:"🎀",g:5,w:4}];
+function cardName(id){let x=data.find(y=>y.id===id);return x?`${x.name} · ${x.ver}`:"선택 포카"}
+function renderMatches(){let usable=state.give.length&&state.want.length;badge.textContent=usable?"3":"0";matchList.innerHTML=usable?sample.filter((_,i)=>!state.done.includes(i)).map((x,i)=>`<article class="match"><div class="match-top"><div class="avatar">${x.a}</div><div><b>${x.n}</b><div style="font-size:.76rem;color:var(--muted)">방금 전 등록</div></div><span class="perfect">서로 일치</span></div><div class="swapline"><div class="mini"><b>내가 드려요</b>${cardName(state.give[i%state.give.length])}</div><div class="arrow">⇄</div><div class="mini"><b>상대가 줘요</b>${cardName(state.want[i%state.want.length])}</div></div><div class="actions"><button onclick="complete(${i})">교환완료</button><button class="here" onclick="here()">나 여기 있음</button></div></article>`).join(""):'<div class="empty"><i>🔍</i><b>아직 매칭할 포카가 없어요</b><p>내놓아요와 구해요를 먼저 선택해주세요.</p></div>';if(usable&&!matchList.innerHTML)matchList.innerHTML='<div class="empty"><i>🎉</i><b>등록된 교환을 모두 완료했어요</b></div>'}
+function complete(i){state.done.push(i);save();renderMatches();toastMsg("교환완료! 목록에서 뺐어요")}
+function here(){bigNick.textContent=nick.value||"현장교환러";overlay.classList.add("show")}
+function renderSummary(){summary.innerHTML=`<div class="match"><b>내놓아요 · ${state.give.length}장</b><p>${state.give.map(cardName).join("<br>")||"선택 없음"}</p></div><div class="match"><b>구해요 · ${state.want.length}장</b><p>${state.want.map(cardName).join("<br>")||"선택 없음"}</p></div><div class="match"><b>교환완료 · ${state.done.length}건</b></div><button class="primary" onclick="resetAll()">베타 데이터 초기화</button>`}
+function saveNick(){localStorage.setItem("pocaNick",nick.value);hello.textContent=(nick.value||"현장교환러")+"님";toastMsg("닉네임 저장 완료")}
+function resetAll(){state={give:[],want:[],done:[]};save();renderCards();renderMatches();renderSummary();toastMsg("초기화했어요")}
+function toastMsg(t){toast.textContent=t;toast.classList.add("show");setTimeout(()=>toast.classList.remove("show"),1600)}
+nick.value=localStorage.getItem("pocaNick")||"현장교환러";hello.textContent=nick.value+"님";renderCards();renderMatches();renderSummary();
+</script></body></html>
