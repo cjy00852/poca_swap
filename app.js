@@ -121,6 +121,7 @@ function renderHere() {
  $('#prevCard').disabled = $('#nextCard').disabled = cards.length < 2;
 }
 function render() {
+ if($('#editor').open)return;
  const joined = !!current.me?.day;
  $('#loginPanel').hidden=!!current.account;$('#accountPanel').hidden=!current.account;
  $('#accountName').textContent=current.account?`${current.account.nickname}님`:'';
@@ -176,10 +177,10 @@ function subscribe() {
  });
 }
 async function refresh() {
- if (!client || !userId || busy) return;
+ if (!client || !userId || busy || $('#editor').open) return;
  const seq = ++refreshSequence;
  const {data,error} = await client.rpc('poca3_state');
- if (seq !== refreshSequence) return;
+ if (seq !== refreshSequence || $('#editor').open) return;
  if (error) { $('#connection').textContent='연결 재시도 중'; return; }
  ready = true; apply(data); $('#connection').textContent='● 연결됨';
 }
@@ -265,12 +266,19 @@ let touchStart;
 $('#herePhoto').addEventListener('touchstart',e=>{touchStart=e.changedTouches[0].clientX;},{passive:true});
 $('#herePhoto').addEventListener('touchend',e=>{const delta=e.changedTouches[0].clientX-touchStart;if(Math.abs(delta)>45){hereIndex+=delta<0?1:-1;renderHere();}},{passive:true});
 function openEditor(old,editing=false) {
+ ++refreshSequence;
  editingId=editing?old.id:null;
  if(!current.account)return; editorMembers=[];
  importId=editing?null:old?.id || null;photoData=old?.img || '';uploadedPhoto='';generatedName='';$('#cardForm').reset();$('#editorError').textContent='';
- editorMembers=editing?[...(old.members || [])]:[];renderMemberEditor();$('#catalogEvent').value=editing?old.event:'';$('#catalogKind').value=editing?old.kind:'';$('#editorTitle').textContent=editing?'도감 사진 · 정보 수정':'공용 도감에 추가';$('#saveCard').textContent=editing?'수정 저장':'공용 도감에 저장';$('#cardName').value=old?.name || '';$('#preview').hidden=!old;$('#preview').src=old?imageURL(old):'';$('#editor').showModal();
+ editorMembers=editing?[...(old.members || [])]:[];renderMemberEditor();$('#catalogEvent').value=editing?old.event:'';$('#catalogKind').value=editing?old.kind:'';$('#editorTitle').textContent=editing?'도감 사진 · 정보 수정':'공용 도감에 추가';$('#saveCard').textContent=editing?'수정 저장':'공용 도감에 저장';$('#cardName').value=old?.name || '';
+ const events=[...new Set(current.catalog.map(c=>c.event))].sort((a,b)=>a.localeCompare(b,'ko'));
+ $('#existingEvent').innerHTML='<option value="">직접 입력</option>'+events.map(event=>`<option value="${esc(event)}">${esc(event)}</option>`).join('');$('#existingEvent').value=editing?old.event:'';
+ $('#preview').hidden=!old;$('#preview').src=old?imageURL(old):'';$('#editor').showModal();
 }
+$('#existingEvent').onchange=()=>{if($('#existingEvent').value)$('#catalogEvent').value=$('#existingEvent').value;else $('#catalogEvent').focus();};
+$('#catalogEvent').oninput=()=>{$('#existingEvent').value=[...$('#existingEvent').options].some(o=>o.value===$('#catalogEvent').value)?$('#catalogEvent').value:'';};
 $('#addBtn').onclick=()=>{if(ready&&!busy)openEditor();};$('#closeEditor').onclick=()=>{if(!photoLoading&&!busy)$('#editor').close();};
+$('#editor').addEventListener('close',()=>{render();void refresh();});
 $('#editor').addEventListener('cancel',e=>{if(photoLoading||busy)e.preventDefault();});
 for(const id of ['catalogKind','catalogMember']) $(`#${id}`).addEventListener('input',()=>{
  if(!$('#cardName').value.trim() || $('#cardName').value === generatedName) {

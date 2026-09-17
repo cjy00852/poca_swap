@@ -58,7 +58,13 @@ try{
  await a.locator('[data-tab="catalog"]').click();assert.equal(await a.locator('#addBtn').isVisible(),true);
 
  await a.locator('#catalogColumns').selectOption('6');assert.equal(await a.locator('#cards').evaluate(el=>getComputedStyle(el).gridTemplateColumns.split(' ').length),6);
- await a.locator(`[data-edit-card="${Z}"]`).click();await a.locator('#cardName').fill('수정한 포카');await a.locator('[data-editor-member="원이"]').click();await a.locator('#saveCard').click();await a.locator('#editor').waitFor({state:'hidden'});
+ await a.locator(`[data-edit-card="${Z}"]`).click();await a.locator('#cardName').fill('수정한 포카');
+ await a.locator('#existingEvent').selectOption({label:'기존 포카'});assert.equal(await a.locator('#catalogEvent').inputValue(),'기존 포카');await a.locator('#existingEvent').focus();
+ await a.evaluate(()=>{window.editorMutations=0;window.editorObserver=new MutationObserver(()=>window.editorMutations++);window.editorObserver.observe(document.querySelector('#eventOptions'),{childList:true});});
+ await refresh(a);await a.waitForTimeout(300);
+ assert.equal(await a.evaluate(()=>window.editorMutations),0,'background refresh must not rebuild editor suggestions');
+ assert.equal(await a.locator('#editor').evaluate(el=>el.open),true);assert.equal(await a.locator('#cardName').inputValue(),'수정한 포카');
+ await a.evaluate(()=>window.editorObserver.disconnect());await a.locator('[data-editor-member="원이"]').click();await a.locator('#saveCard').click();await a.locator('#editor').waitFor({state:'hidden'});
  await a.locator(`[data-delete-card="${Z}"]`).click();await a.locator('#confirmYes').click();await a.locator(`[data-pick="${Z}"]`).waitFor({state:'detached'});await a.locator('#undoCatalogDelete').click();await a.locator(`[data-pick="${Z}"]`).waitFor();
  await a.locator('[data-tab="matches"]').click();await a.locator('[data-chat-peer]').first().click();await a.locator('#chatText').fill('입구 <여기> 앞이에요');await a.locator('#chatSend').click();await a.locator('#chatMessages').getByText('입구 <여기> 앞이에요',{exact:true}).waitFor();await a.locator('#closeChat').click();
  await b.locator('#openChats').click();await b.locator('[data-chat-room]').first().click();await b.locator('#chatMessages').getByText('입구 <여기> 앞이에요',{exact:true}).waitFor();await b.locator('#chatText').fill('지금 갈게요');await b.locator('#chatSend').click();await b.locator('#chatMessages').getByText('지금 갈게요',{exact:true}).waitFor();await b.locator('#closeChat').click();
