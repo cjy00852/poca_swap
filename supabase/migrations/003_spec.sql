@@ -84,7 +84,7 @@ begin
  return public.poca3_state();
 end $$;
 create function public.poca3_action(action text,input jsonb default '{}') returns jsonb language plpgsql security definer set search_path='' as $$
-declare device uuid:=auth.uid(); who uuid:=public.poca3_owner(); me public.poca2_members; t public.poca2_trades; m jsonb; g jsonb; rule jsonb; cond jsonb:='{}'; members text[]; cid uuid; peer uuid; name text;
+declare device uuid:=auth.uid(); who uuid:=public.poca3_owner(); me public.poca2_members; t public.poca2_trades; m jsonb; g jsonb; rule jsonb; cond jsonb:='{}'; chosen_members text[]; cid uuid; peer uuid; name text;
 begin
  if who is null then raise exception '닉네임과 PIN으로 로그인해주세요.'; end if;
  perform pg_advisory_xact_lock(74109202);perform public.poca3_expire();
@@ -92,12 +92,12 @@ begin
  if action='logout' then delete from public.poca3_sessions where poca3_sessions.device=auth.uid(); return public.poca3_state();
  elsif action='catalog_add' then
  if not exists(select 1 from public.poca3_admins where owner=who) then raise exception '도감은 관리자만 등록할 수 있어요.'; end if;
- select array_agg(v order by ord) into members from unnest(array['원이','리브','미나미','메이','제나']) with ordinality u(v,ord) where input->'members' ? v;
- if coalesce(cardinality(members),0)=0 then raise exception '멤버 또는 단체를 선택해주세요.'; end if;
+ select array_agg(v order by ord) into chosen_members from unnest(array['원이','리브','미나미','메이','제나']) with ordinality u(v,ord) where input->'members' ? v;
+ if coalesce(cardinality(chosen_members),0)=0 then raise exception '멤버 또는 단체를 선택해주세요.'; end if;
  -- Upload belongs to the current device session, not the recovered account UUID.
- m:=public.poca2_action('catalog_add',input||jsonb_build_object('member',case when cardinality(members)=5 then '단체' else array_to_string(members,' + ') end));
+ m:=public.poca2_action('catalog_add',input||jsonb_build_object('member',case when cardinality(chosen_members)=5 then '단체' else array_to_string(chosen_members,' + ') end));
  cid:=(m->>'addedId')::uuid;
- update public.poca_catalog set members=poca3_action.members where id=cid;
+ update public.poca_catalog set members=chosen_members where id=cid;
  return public.poca3_state();
  elsif action in ('join','leave','publish') then
  if action in ('leave','publish') then
@@ -109,7 +109,7 @@ begin
  for g in select * from jsonb_array_elements(public.poca2_cards(input->'give')) loop
  rule:=input->'conditions'->(g->>'id');
  if rule is null or jsonb_typeof(rule->'ids') is distinct from 'array' or jsonb_typeof(rule->'members') is distinct from 'array' or jsonb_typeof(rule->'any') is distinct from 'boolean' then raise exception '각 보유 포카의 교환 후보를 선택해주세요.'; end if;
- if jsonb_array_length(rule->'ids')>500 or exists(select 1 from jsonb_array_elements_text(rule->'ids') id where not exists(select 1 from public.poca_catalog c where c.id::text=id)) or exists(select 1 from jsonb_array_elements_text(rule->'members') v where v not in ('원이','리브','미나미','메이','제나')) then raise exception '교환 후보를 다시 선택해주세요.'; end if;
+ if jsonb_array_length(rule->'ids')>500 or exists(select 1 from jsonb_array_elements_text(rule->'ids') candidate(card_id) where not exists(select 1 from public.poca_catalog c where c.id::text=candidate.card_id)) or exists(select 1 from jsonb_array_elements_text(rule->'members') v where v not in ('원이','리브','미나미','메이','제나')) then raise exception '교환 후보를 다시 선택해주세요.'; end if;
  if not (rule->>'any')::boolean and jsonb_array_length(rule->'ids')=0 and jsonb_array_length(rule->'members')=0 then raise exception '각 보유 포카의 교환 후보를 선택해주세요.'; end if;
  cond:=cond||jsonb_build_object(g->>'id',rule);
  end loop;
@@ -162,3 +162,5 @@ revoke all on function public.poca3_owner(),public.poca3_day(),public.poca3_noti
 grant execute on function public.poca3_owner(),public.poca3_day(),public.poca3_state(),public.poca3_login(text,text,boolean),public.poca3_action(text,jsonb) to authenticated;
 revoke execute on function public.poca_action(text,jsonb),public.poca_state(),public.poca2_action(text,jsonb),public.poca2_state() from public,anon,authenticated;
 commit;
+
+

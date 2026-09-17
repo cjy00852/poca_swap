@@ -2,11 +2,14 @@ import { chromium } from 'playwright';
 import { PGlite } from '@electric-sql/pglite';
 import { readFileSync, mkdirSync } from 'node:fs';
 import assert from 'node:assert/strict';
-const db = new PGlite();
+import {pgcrypto} from '@electric-sql/pglite/contrib/pgcrypto';
+const db = new PGlite({extensions:{pgcrypto}});
 mkdirSync('test-results',{recursive:true});
 await db.exec(`create role anon;create role authenticated;create schema auth;create schema storage;create table auth.users(id uuid primary key);create function auth.uid() returns uuid language sql stable as $$select nullif(current_setting('request.jwt.claim.sub',true),'')::uuid$$;create table storage.buckets(id text primary key,name text,public boolean,file_size_limit bigint,allowed_mime_types text[]);create table storage.objects(id uuid default gen_random_uuid(),bucket_id text,name text);alter table storage.objects enable row level security;create function storage.foldername(text) returns text[] language sql as $$select string_to_array($1,'/')$$;create publication supabase_realtime;grant usage on schema public,auth,storage to authenticated,anon;`);
 await db.exec(readFileSync('supabase/schema.sql','utf8'));
 await db.exec(readFileSync('supabase/migrations/002_shared_catalog.sql','utf8'));
+await db.exec('create schema extensions');
+await db.exec(readFileSync('supabase/migrations/003_spec.sql','utf8'));
 const browser = await chromium.launch({channel:process.env.BROWSER_CHANNEL || 'chrome',headless:true});
 let queue=Promise.resolve();const errors=[];
 const X='10000000-0000-0000-0000-000000000001',Y='10000000-0000-0000-0000-000000000002',Z='10000000-0000-0000-0000-000000000003';
@@ -22,7 +25,7 @@ async function user(id){
     await db.query("select set_config('request.jwt.claim.sub',$1,false)",[id]);
     if(url.pathname.startsWith('/rest/v1/rpc/')){
      const input=route.request().postDataJSON()||{};
-     const result=url.pathname.endsWith('poca2_state')?await db.query('select poca2_state() as data'):await db.query('select poca2_action($1,$2::jsonb) as data',[input.action,JSON.stringify(input.input)]);
+     const result=url.pathname.endsWith('poca3_state')?await db.query('select poca3_state() as data'):url.pathname.endsWith('poca3_login')?await db.query('select poca3_login($1,$2,$3) as data',[input.nickname,input.pin,input.register]):await db.query('select poca3_action($1,$2::jsonb) as data',[input.action,JSON.stringify(input.input)]);
      await route.fulfill({json:result.rows[0].data});
     }else if(url.pathname==='/storage/v1/object/sign/poca-photos'){
      const input=route.request().postDataJSON();await route.fulfill({json:input.paths.map(path=>({path,signedURL:`/object/sign/poca-photos/${path}?token=test`}))});
@@ -37,25 +40,20 @@ async function user(id){
  await page.goto(process.env.TEST_URL || 'http://127.0.0.1:5173');await page.locator('#catalogCount').filter({hasText:'전체 5종'}).waitFor();return page;
 }
 async function refresh(page){await page.evaluate(()=>document.dispatchEvent(new Event('visibilitychange')));}
-async function join(page,nickname){await page.locator('[data-tab="register"]').click();await page.locator('#nick').fill(nickname);await page.locator('#day').fill('2026-09-17');await page.locator('#joinBtn').click();await page.locator('#venue').waitFor();}
+async function join(page,nickname){await page.locator('[data-tab="register"]').click();await page.locator('#day').fill('2026-09-17');await page.locator('#joinBtn').click();await page.locator('#venue').waitFor();}
 async function select(page,type,id){await page.locator('[data-tab="catalog"]').click();await page.locator(`[data-mode="${type}"]`).click();await page.locator(`[data-pick="${id}"]`).click();}
 async function qty(page,type,id,n){await page.locator('[data-tab="register"]').click();const input=page.locator(`[data-qty="${id}"][data-kind="${type}"]`);await input.fill(String(n));await input.press('Tab');}
+async function login(page,nickname,register=true){await page.locator('#loginNick').fill(nickname);await page.locator('#loginPin').fill('1234');await page.locator(register?'#signupBtn':'#loginBtn').click();await page.locator('#accountPanel').waitFor();}
 try{
  const a=await user('00000000-0000-0000-0000-000000000001'),b=await user('00000000-0000-0000-0000-000000000002');
- await select(a,'give',X);await join(a,'원이러버');assert.equal(await a.locator('#giveN').textContent(),'1장');
- await qty(a,'give',X,3);await select(a,'give',Z);await select(a,'want',Y);await qty(a,'want',Y,2);await a.locator('#publishBtn').click();
- await join(b,'메이러버');await select(b,'give',Y);await qty(b,'give',Y,3);await select(b,'want',X);await qty(b,'want',X,2);await b.locator('#publishBtn').click();
- await b.locator('[data-request]').waitFor();await refresh(a);await a.locator('[data-request]').waitFor();await a.locator('#tradeQty0').fill('2');await a.locator('[data-request]').click();await a.getByText('상대 확인 대기',{exact:true}).waitFor();
- await refresh(b);await b.locator('[data-confirm-trade]').click();await b.locator('#confirmYes').click();await b.getByText('교환 완료! 남은 수량과 거래 내역을 반영했어요.',{exact:true}).waitFor();
- await refresh(a);await a.locator('[data-tab="register"]').click();await a.locator('#wantN').filter({hasText:'0장'}).waitFor();assert.equal(await a.locator(`[data-qty="${X}"]`).inputValue(),'1');
- await a.locator('#venue [data-action="here"]').click();assert.equal(await a.locator('#herePhoto img').count(),1);assert.equal(await a.locator('#hereName').textContent(),'포카 1');await a.locator('#nextCard').click();assert.equal(await a.locator('#hereName').textContent(),'포카 3');assert.equal(await a.locator('#herePager').textContent(),'2 / 2');await a.screenshot({path:'test-results/beta2-here.png'});await a.locator('#closeHere').click();
- await a.locator('[data-tab="catalog"]').click();assert.equal(await a.locator(`[data-pick="${X}"]`).count(),1);
- await a.locator('#addBtn').click();await a.locator('#photo').setInputFiles('images/poca_01.jpg');await a.locator('#catalogEvent').fill('2026 팬미팅');await a.locator('#catalogKind').fill('뱃지');await a.locator('#catalogMember').fill('원이');await a.locator('#cardName').fill('뱃지 원이 <A>');await a.locator('#saveCard').click();await a.locator('#editor').waitFor({state:'hidden'});
- await refresh(b);await b.locator('[data-tab="catalog"]').click();await b.locator('#cards').getByText('뱃지 원이 <A>',{exact:true}).waitFor();await b.locator('#eventFilter').selectOption('2026 팬미팅');assert.equal(await b.locator('#cards .card').count(),1);await b.locator('#eventFilter').selectOption('');
- await a.reload();await a.locator('#cards').getByText('뱃지 원이 <A>',{exact:true}).waitFor();await a.screenshot({path:'test-results/beta2-catalog.png',fullPage:true});
- assert.equal(await a.evaluate(()=>document.documentElement.scrollWidth<=innerWidth),true);
- await a.locator('[data-tab="register"]').click();await a.locator('#leaveBtn').click();await a.locator('#confirmYes').click();await a.locator('#joinForm').waitFor();await a.locator('[data-tab="history"]').click();assert.equal(await a.locator('#historyList .match').count(),1);
- await a.locator('[data-tab="catalog"]').click();await a.locator('#cards').getByText('뱃지 원이 <A>',{exact:true}).waitFor();
- assert.deepEqual(errors,[]);console.log('PASS beta2 two-browser shared catalog, canonical names, pre-join selection, quantities, partial completion, persistent catalog/history, one-photo carousel, date exit, mobile layout');
+ await login(a,'원이러버');await login(b,'제나러버');await join(a);await join(b);
+ await select(a,'give',X);await qty(a,'give',X,2);await select(a,'want',Y);await a.locator('#goRegister').click();await a.locator('#publishBtn').click();
+ await select(b,'give',Y);await qty(b,'give',Y,2);await select(b,'want',X);await b.locator('#goRegister').click();await b.locator('#publishBtn').click();await b.locator('[data-request]').waitFor();await b.locator('[data-request]').click();
+ await refresh(a);await a.locator('[data-tab="matches"]').click();await a.locator('[data-trade-action="accept"]').click();await a.locator('[data-trade-action="complete"]').click();
+ await refresh(b);await b.locator('[data-confirm-trade]').click();await b.locator('#confirmYes').click();await b.locator('[data-tab="register"]').click();await b.locator('#giveN').filter({hasText:'1장'}).waitFor();
+ await a.locator('[data-tab="register"]').click();await a.locator('[data-action="here"]').click();await a.locator('#hereDialog').waitFor();assert.match(await a.locator('#hereNumber').textContent(),/#/);await a.locator('#closeHere').click();
+ await a.locator('#logoutBtn').click();await a.locator('#loginPanel').waitFor();await login(a,'원이러버',false);await a.locator('[data-tab="history"]').click();await a.locator('#historyList').getByText('교환 완료',{exact:true}).waitFor();
+ assert.equal(await a.locator('#addBtn').isVisible(),false);
+ assert.ok(await a.evaluate(()=>document.documentElement.scrollWidth<=innerWidth));assert.deepEqual(errors,[]);
+ console.log('PASS spec browser: login, per-card choices, reservation, mutual completion, recovery, number display and mobile layout');
 }finally{await browser.close();await db.close();}
-
