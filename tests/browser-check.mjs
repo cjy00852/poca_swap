@@ -11,6 +11,7 @@ await db.exec(readFileSync('supabase/migrations/002_shared_catalog.sql','utf8'))
 await db.exec('create schema extensions');
 await db.exec(readFileSync('supabase/migrations/003_spec.sql','utf8'));
 await db.exec(readFileSync('supabase/migrations/004_member_catalog.sql','utf8'));
+for(const f of ['005_catalog_edit','006_reset_selections','007_chat'])await db.exec(readFileSync(`supabase/migrations/${f}.sql`,'utf8'));
 const browser = await chromium.launch({channel:process.env.BROWSER_CHANNEL || 'chrome',headless:true});
 let queue=Promise.resolve();const errors=[];
 const X='10000000-0000-0000-0000-000000000001',Y='10000000-0000-0000-0000-000000000002',Z='10000000-0000-0000-0000-000000000003';
@@ -26,7 +27,7 @@ async function user(id){
     await db.query("select set_config('request.jwt.claim.sub',$1,false)",[id]);
     if(url.pathname.startsWith('/rest/v1/rpc/')){
      const input=route.request().postDataJSON()||{};
-     const result=url.pathname.endsWith('poca3_state')?await db.query('select poca3_state() as data'):url.pathname.endsWith('poca3_login')?await db.query('select poca3_login($1,$2,$3) as data',[input.nickname,input.pin,input.register]):await db.query('select poca3_action($1,$2::jsonb) as data',[input.action,JSON.stringify(input.input)]);
+     const result=url.pathname.endsWith('poca_chat')?await db.query('select poca_chat($1,$2::jsonb) as data',[input.action,JSON.stringify(input.input)]):url.pathname.endsWith('poca_catalog_manage')?await db.query('select poca_catalog_manage($1,$2::jsonb) as data',[input.operation,JSON.stringify(input.input)]):url.pathname.endsWith('poca_reset_selections')?await db.query('select poca_reset_selections($1,$2) as data',[input.selection,input.expected_revision]):url.pathname.endsWith('poca3_state')?await db.query('select poca3_state() as data'):url.pathname.endsWith('poca3_login')?await db.query('select poca3_login($1,$2,$3) as data',[input.nickname,input.pin,input.register]):await db.query('select poca3_action($1,$2::jsonb) as data',[input.action,JSON.stringify(input.input)]);
      await route.fulfill({json:result.rows[0].data});
     }else if(url.pathname==='/storage/v1/object/sign/poca-photos'){
      const input=route.request().postDataJSON();await route.fulfill({json:input.paths.map(path=>({path,signedURL:`/object/sign/poca-photos/${path}?token=test`}))});
@@ -55,6 +56,13 @@ try{
  await a.locator('[data-tab="register"]').click();await a.locator('[data-action="here"]').click();await a.locator('#hereDialog').waitFor();assert.match(await a.locator('#hereNumber').textContent(),/#/);await a.locator('#closeHere').click();
  await a.locator('#logoutBtn').click();await a.locator('#loginPanel').waitFor();await login(a,'원이러버',false);await a.locator('[data-tab="history"]').click();await a.locator('#historyList').getByText('교환 완료',{exact:true}).waitFor();
  await a.locator('[data-tab="catalog"]').click();assert.equal(await a.locator('#addBtn').isVisible(),true);
+
+ await a.locator('#catalogColumns').selectOption('6');assert.equal(await a.locator('#cards').evaluate(el=>getComputedStyle(el).gridTemplateColumns.split(' ').length),6);
+ await a.locator(`[data-edit-card="${Z}"]`).click();await a.locator('#cardName').fill('수정한 포카');await a.locator('[data-editor-member="원이"]').click();await a.locator('#saveCard').click();await a.locator('#editor').waitFor({state:'hidden'});
+ await a.locator(`[data-delete-card="${Z}"]`).click();await a.locator('#confirmYes').click();await a.locator(`[data-pick="${Z}"]`).waitFor({state:'detached'});await a.locator('#undoCatalogDelete').click();await a.locator(`[data-pick="${Z}"]`).waitFor();
+ await a.locator('[data-tab="matches"]').click();await a.locator('[data-chat-peer]').first().click();await a.locator('#chatText').fill('입구 <여기> 앞이에요');await a.locator('#chatSend').click();await a.locator('#chatMessages').getByText('입구 <여기> 앞이에요',{exact:true}).waitFor();await a.locator('#closeChat').click();
+ await b.locator('#openChats').click();await b.locator('[data-chat-room]').first().click();await b.locator('#chatMessages').getByText('입구 <여기> 앞이에요',{exact:true}).waitFor();await b.locator('#chatText').fill('지금 갈게요');await b.locator('#chatSend').click();await b.locator('#chatMessages').getByText('지금 갈게요',{exact:true}).waitFor();await b.locator('#closeChat').click();
+ await a.locator('[data-tab="register"]').click();assert.ok(await a.locator('.wanted-photo img').count());await a.locator('#resetWant').click();await a.locator('#confirmYes').click();await a.locator('.wanted-photo').waitFor({state:'detached'});assert.equal(await a.locator('#giveN').textContent(),'1장');await a.locator('#resetGive').click();await a.locator('#confirmYes').click();await a.locator('#giveN').filter({hasText:'0장'}).waitFor();
  assert.ok(await a.evaluate(()=>document.documentElement.scrollWidth<=innerWidth));assert.deepEqual(errors,[]);
  console.log('PASS spec browser: login, per-card choices, reservation, mutual completion, recovery, number display and mobile layout');
 }finally{await browser.close();await db.close();}

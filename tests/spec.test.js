@@ -15,7 +15,7 @@ test('spec integration: PIN recovery, member catalog, conditions, reservations, 
  const publish=async(id,target,qty=2)=>act('publish',{give:[{id,qty}],conditions:{[id]:{ids:[target],members:[],any:false}},revision:(await state()).me.revision});
  try{
  await db.exec(bootstrap);await db.exec('create schema extensions');
- for(const file of ['supabase/schema.sql','supabase/migrations/002_shared_catalog.sql','supabase/migrations/003_spec.sql','supabase/migrations/004_member_catalog.sql'])await db.exec(readFileSync(file,'utf8'));
+ for(const file of ['supabase/schema.sql','supabase/migrations/002_shared_catalog.sql','supabase/migrations/003_spec.sql','supabase/migrations/004_member_catalog.sql','supabase/migrations/005_catalog_edit.sql','supabase/migrations/006_reset_selections.sql','supabase/migrations/007_chat.sql'])await db.exec(readFileSync(file,'utf8'));
  await user(A);assert.equal((await state()).account,null);await assert.rejects(()=>act('join',{}));
  assert.ok((await login('A','1234',true)).account);await act('join',{day:'2026-09-18'});await publish(X,Y);
  await assert.rejects(()=>db.query('select poca2_action($1,$2)',['leave',{}]));await assert.rejects(()=>db.query('select * from poca3_accounts'));
@@ -29,6 +29,21 @@ test('spec integration: PIN recovery, member catalog, conditions, reservations, 
  await db.exec("reset role; update poca2_trades set expires_at=now()-interval '1 second' where status='awaiting'");await user(C);s=await state();assert.equal(s.matches.length,1);assert.equal(s.trades.filter(t=>t.status==='awaiting').length,0);
  await user(C);await db.query("insert into storage.objects(bucket_id,name) values('poca-photos',$1)",[C+'/unit.jpg']);
  s=await act('catalog_add',{img:C+'/unit.jpg',name:'유닛 A',event:'팬미팅',kind:'MD',members:['원이','제나']});assert.deepEqual(s.catalog.find(c=>c.name==='유닛 A').members,['원이','제나']);
+
+ const chat=async(action,input={})=>(await db.query('select poca_chat($1,$2::jsonb) as data',[action,JSON.stringify(input)])).rows[0].data;
+ const manage=async(operation,input)=>(await db.query('select poca_catalog_manage($1,$2::jsonb) as data',[operation,JSON.stringify(input)])).rows[0].data;
+ const room=await chat('open',{peerId:B,giveId:X,receiveId:Y});
+ const messageId='90000000-0000-0000-0000-000000000001';
+ await chat('send',{id:room.id,messageId,body:'입구 <안내> 앞'});await chat('send',{id:room.id,messageId,body:'입구 <안내> 앞'});
+ assert.equal((await chat('messages',{id:room.id})).messages.length,1);
+ await user(B);assert.equal((await chat('list')).rooms[0].unread,1);const received=await chat('messages',{id:room.id});await chat('read',{id:room.id,through:received.messages[0].seq});assert.equal((await chat('list')).rooms[0].unread,0);
+ const D='00000000-0000-0000-0000-000000000004';await db.exec(`reset role;insert into auth.users values('${D}')`);await user(D);await login('D','1234',true);
+ assert.equal((await chat('list')).rooms.length,0);await assert.rejects(()=>chat('messages',{id:room.id}));await assert.rejects(()=>chat('send',{id:room.id,messageId:'90000000-0000-0000-0000-000000000002',body:'침입'}));await assert.rejects(()=>db.query('select * from poca_messages'));
+ await user(C);s=await manage('edit',{id:X,name:'수정 포카',event:'수정 행사',kind:'MD',members:['원이'],img:'images/poca_01.jpg'});assert.equal(s.me.give[0].name,'수정 포카');assert.equal(s.trades.find(t=>t.status==='completed').give.name,'포카 2');
+ s=await manage('delete',{id:X});assert.ok(!s.catalog.some(c=>c.id===X));assert.equal(s.me.give.length,0);assert.ok(s.trades.some(t=>t.status==='completed'));
+ s=await manage('restore',{id:X});assert.ok(s.catalog.some(c=>c.id===X));await publish(X,Y);
+ s=(await db.query('select poca_reset_selections($1,$2) as data',['want',(await state()).me.revision])).rows[0].data;assert.equal(s.me.give[0].qty,2);assert.deepEqual(s.me.conditions,{});
+ s=(await db.query('select poca_reset_selections($1,$2) as data',['give',s.me.revision])).rows[0].data;assert.equal(s.me.give.length,0);assert.ok(s.trades.some(t=>t.status==='completed'));
  await act('leave');await act('logout');assert.equal((await state()).account,null);s=await login('A');assert.equal(s.trades[0].status,'completed');
  for(let i=0;i<5;i++)assert.ok((await login('A','0000')).error);assert.match((await login('A')).error,/15분/);
  }finally{await db.close();}
