@@ -10,6 +10,7 @@ await db.exec(readFileSync('supabase/schema.sql','utf8'));
 await db.exec(readFileSync('supabase/migrations/002_shared_catalog.sql','utf8'));
 await db.exec('create schema extensions');
 await db.exec(readFileSync('supabase/migrations/003_spec.sql','utf8'));
+await db.exec(readFileSync('supabase/migrations/004_member_catalog.sql','utf8'));
 const browser = await chromium.launch({channel:process.env.BROWSER_CHANNEL || 'chrome',headless:true});
 let queue=Promise.resolve();const errors=[];
 const X='10000000-0000-0000-0000-000000000001',Y='10000000-0000-0000-0000-000000000002',Z='10000000-0000-0000-0000-000000000003';
@@ -53,7 +54,7 @@ try{
  await refresh(b);await b.locator('[data-confirm-trade]').click();await b.locator('#confirmYes').click();await b.locator('[data-tab="register"]').click();await b.locator('#giveN').filter({hasText:'1장'}).waitFor();
  await a.locator('[data-tab="register"]').click();await a.locator('[data-action="here"]').click();await a.locator('#hereDialog').waitFor();assert.match(await a.locator('#hereNumber').textContent(),/#/);await a.locator('#closeHere').click();
  await a.locator('#logoutBtn').click();await a.locator('#loginPanel').waitFor();await login(a,'원이러버',false);await a.locator('[data-tab="history"]').click();await a.locator('#historyList').getByText('교환 완료',{exact:true}).waitFor();
- assert.equal(await a.locator('#addBtn').isVisible(),false);
+ await a.locator('[data-tab="catalog"]').click();assert.equal(await a.locator('#addBtn').isVisible(),true);
  assert.ok(await a.evaluate(()=>document.documentElement.scrollWidth<=innerWidth));assert.deepEqual(errors,[]);
  console.log('PASS spec browser: login, per-card choices, reservation, mutual completion, recovery, number display and mobile layout');
 }finally{await browser.close();await db.close();}

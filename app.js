@@ -66,8 +66,8 @@ function renderCatalog() {
  const candidateCount=Object.values(draft.conditions).reduce((n,r)=>n+r.ids.length,0);
  const total = sum(draft.give) + candidateCount;
  $('#selectionCount').textContent = total ? `내놓아요 ${sum(draft.give)}장 · 선택 후보 ${candidateCount}개` : '도감에서 교환할 포카를 골라주세요';
- $('#addBtn').hidden = !current.admin; $('#addBtn').disabled = !ready || busy;
- $('#legacyPanel').hidden = !current.admin || !legacy.some(c => !imported.has(c.id));
+ $('#addBtn').hidden = !current.account; $('#addBtn').disabled = !ready || busy;
+ $('#legacyPanel').hidden = !current.account || !legacy.some(c => !imported.has(c.id));
  $('#legacyCards').innerHTML = legacy.filter(c => !imported.has(c.id)).map((c,i) => `<button data-import="${esc(c.id)}">${photo(c)}${esc(c.name)}<br>도감에 가져오기</button>`).join('');
 }
 function renderSelections() {
@@ -238,7 +238,7 @@ let touchStart;
 $('#herePhoto').addEventListener('touchstart',e=>{touchStart=e.changedTouches[0].clientX;},{passive:true});
 $('#herePhoto').addEventListener('touchend',e=>{const delta=e.changedTouches[0].clientX-touchStart;if(Math.abs(delta)>45){hereIndex+=delta<0?1:-1;renderHere();}},{passive:true});
 function openEditor(old) {
- if(!current.admin)return; editorMembers=[];
+ if(!current.account)return; editorMembers=[];
  importId=old?.id || null;photoData=old?.img || '';uploadedPhoto='';generatedName='';$('#cardForm').reset();$('#editorError').textContent='';
  renderMemberEditor();$('#cardName').value=old?.name || '';$('#preview').hidden=!old;$('#preview').src=old?imageURL(old):'';$('#editor').showModal();
 }
