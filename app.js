@@ -5,11 +5,16 @@ const esc = value => String(value ?? '').replace(/[&<>"']/g, c => ({ '&':'&amp;'
 const url = import.meta.env.VITE_SUPABASE_URL, publicKey = import.meta.env.VITE_SUPABASE_PUBLISHABLE_KEY;
 const configured = /^https:\/\//.test(url || '') && !!publicKey && !url.includes('YOUR_PROJECT');
 const emptyState = { me:null, catalog:[], matches:[], listings:[], trades:[], count:0 };
-let current = emptyState, draft = { give:{}, want:{} }, mode = 'give';
+let current = emptyState, draft = { give:{}, want:{}, conditions:{} }, mode = 'give';
 let client, userId, channel, subscriptionKey, ready = false, busy = false, initialized = false;
-let refreshSequence = 0, nicknameSequence = 0, nickTimer, hereIndex = 0;
+let refreshSequence = 0, hereIndex = 0;
 let photoData = '', photoLoading = false, uploadedPhoto = '', importId = null;
 let generatedName = '';
+const MEMBERS=['원이','리브','미나미','메이','제나'];
+let activeOffer='', editorMembers=[], filterMember='';
+const ruleFor=id=>draft.conditions[id] ||= {ids:[],members:[],any:false};
+function syncWanted(){ draft.want=Object.fromEntries((draft.conditions[activeOffer]?.ids || []).map(id=>[id,1])); }
+
 const photoURLs = new Map();
 let photoRequest = false;
 const normalize = value => value.normalize('NFKC').replace(/\s+/g,'').toLowerCase();
@@ -24,10 +29,10 @@ function toast(message) {
  clearTimeout(toast.timer); toast.timer = setTimeout(() => $('#toast').classList.remove('show'), 4500);
 }
 function saveDraft() {
- try { localStorage.setItem('pocaBeta2Draft', JSON.stringify({ ...draft, owner:userId, revision:current.me?.revision ?? null })); }
+ try { localStorage.setItem('pocaBeta2Draft', JSON.stringify({ ...draft, owner:userId, revision:current.me?.revision ?? null, account:current.account?.id ?? null })); }
  catch { toast('기기 저장 공간이 부족해요. 새로고침 전에 교환 목록을 올려주세요.'); }
 }
-function serverDraft(me) { return Object.fromEntries(['give','want'].map(type => [type, Object.fromEntries((me?.[type] || []).map(c => [c.id,c.qty]))])); }
+function serverDraft(me) { return {give:Object.fromEntries((me?.give || []).map(c=>[c.id,c.qty])),want:{},conditions:structuredClone(me?.conditions || {})}; }
 function showTab(tab) {
  $$('nav button').forEach(b => { b.classList.toggle('active', b.dataset.tab === tab); b.setAttribute('aria-current', b.dataset.tab === tab ? 'page' : 'false'); });
  $$('.section').forEach(s => s.classList.toggle('active-section', s.id === tab)); window.scrollTo({top:0});
@@ -50,51 +55,55 @@ function setFilter(id, field, label) {
 }
 function renderCatalog() {
  const query = normalize($('#search').value);
- const filtered = current.catalog.filter(c => (!$('#eventFilter').value || c.event === $('#eventFilter').value) && (!$('#kindFilter').value || c.kind === $('#kindFilter').value) && (!$('#memberFilter').value || c.member === $('#memberFilter').value) && normalize([c.name,c.event,c.kind,c.member].join(' ')).includes(query));
+ if(!draft.give[activeOffer]) activeOffer=Object.keys(draft.give)[0] || '';
+ syncWanted();
+ $('#offerPickerLabel').hidden=mode!=='want';
+ $('#offerPicker').innerHTML=Object.keys(draft.give).map(id=>`<option value="${id}">${esc(cardById(id)?.name)}</option>`).join('');$('#offerPicker').value=activeOffer;
+ $('#catalogMemberButtons').innerHTML=['전체',...MEMBERS,'단체'].map(m=>`<button data-filter-member="${m==='전체'?'':m}" aria-pressed="${filterMember===(m==='전체'?'':m)}">${m}</button>`).join('');
+ const filtered = current.catalog.filter(c => (!$('#eventFilter').value || c.event === $('#eventFilter').value) && (!$('#kindFilter').value || c.kind === $('#kindFilter').value) && (!$('#memberFilter').value || c.member === $('#memberFilter').value || c.members?.includes($('#memberFilter').value)) && (!filterMember || (filterMember==='단체' ? c.members?.length===5 : c.members?.includes(filterMember))) && normalize([c.name,c.event,c.kind,c.member].join(' ')).includes(query));
  $('#catalogCount').textContent = `전체 ${current.catalog.length}종 · 검색 결과 ${filtered.length}종`;
- $('#cards').innerHTML = filtered.map(c => `<article class="card ${draft[mode][c.id]?'selected':''}"><button class="pick" data-pick="${c.id}" aria-pressed="${!!draft[mode][c.id]}" ${busy?'disabled':''}>${photo(c)}<strong>${esc(c.name)}</strong><small>${metadata(c)}</small><span class="tags">${draft.give[c.id]?`<span>내놓아요 ${draft.give[c.id]}장</span>`:''}${draft.want[c.id]?`<span>구해요 ${draft.want[c.id]}장</span>`:''}</span><span>${draft[mode][c.id]?'✓ 선택됨':'선택하기'}</span></button></article>`).join('') || `<div class="empty">${ready?'검색 결과가 없어요. 다른 분류를 선택하거나 도감에 새 포카를 추가해주세요.':'도감을 불러오는 중이에요.'}</div>`;
- const total = sum(draft.give) + sum(draft.want);
- $('#selectionCount').textContent = total ? `내놓아요 ${sum(draft.give)}장 · 구해요 ${sum(draft.want)}장` : '도감에서 교환할 포카를 골라주세요';
- $('#addBtn').disabled = !ready || busy;
- $('#legacyPanel').hidden = !legacy.some(c => !imported.has(c.id));
+ $('#cards').innerHTML = filtered.map(c => `<article class="card ${draft[mode][c.id]?'selected':''}"><button class="pick" data-pick="${c.id}" aria-pressed="${!!draft[mode][c.id]}" ${busy?'disabled':''}>${photo(c)}<strong>${esc(c.name)}</strong><small>${metadata(c)}</small><span class="tags">${draft.give[c.id]?`<span>내놓아요 ${draft.give[c.id]}장</span>`:''}${draft.want[c.id]?`<span>교환 후보</span>`:''}</span><span>${draft[mode][c.id]?'✓ 선택됨':'선택하기'}</span></button></article>`).join('') || `<div class="empty">${ready?'검색 결과가 없어요. 다른 분류를 선택해주세요.':'도감을 불러오는 중이에요.'}</div>`;
+ const candidateCount=Object.values(draft.conditions).reduce((n,r)=>n+r.ids.length,0);
+ const total = sum(draft.give) + candidateCount;
+ $('#selectionCount').textContent = total ? `내놓아요 ${sum(draft.give)}장 · 선택 후보 ${candidateCount}개` : '도감에서 교환할 포카를 골라주세요';
+ $('#addBtn').hidden = !current.admin; $('#addBtn').disabled = !ready || busy;
+ $('#legacyPanel').hidden = !current.admin || !legacy.some(c => !imported.has(c.id));
  $('#legacyCards').innerHTML = legacy.filter(c => !imported.has(c.id)).map((c,i) => `<button data-import="${esc(c.id)}">${photo(c)}${esc(c.name)}<br>도감에 가져오기</button>`).join('');
 }
 function renderSelections() {
- for (const type of ['give','want']) {
-  $(`#${type}N`).textContent = `${sum(draft[type])}장`;
-  $(`#${type}List`).innerHTML = Object.entries(draft[type]).map(([id,qty]) => {
-   const c = cardById(id); if (!c) return '';
-   return `<article class="qty-card">${photo(c)}<div class="qty-info"><strong>${esc(c.name)}</strong><small>${metadata(c)}</small><div class="stepper"><button data-step="-1" data-kind="${type}" data-id="${id}" aria-label="${esc(c.name)} ${type==='give'?'내놓아요':'구해요'} 수량 줄이기" ${busy?'disabled':''}>−</button><input type="number" min="1" max="99" inputmode="numeric" value="${qty}" data-qty="${id}" data-kind="${type}" aria-label="${esc(c.name)} ${type==='give'?'내놓아요':'구해요'} 수량" ${busy?'disabled':''}><button data-step="1" data-kind="${type}" data-id="${id}" aria-label="${esc(c.name)} ${type==='give'?'내놓아요':'구해요'} 수량 늘리기" ${busy?'disabled':''}>＋</button><span>장</span><button class="remove" data-remove="${id}" data-kind="${type}" ${busy?'disabled':''}>선택 해제</button></div></div></article>`;
-  }).join('') || `<div class="empty">${type==='give'?'내놓을':'원하는'} 포카를 도감에서 선택해주세요.</div>`;
- }
- $('#publishBtn').disabled = !ready || busy || !current.me?.day;
- $('#draftNote').textContent = !current.me?.day ? '날짜에 참여한 후 목록을 올려주세요. 원하는 포카도 도감에서 선택하고 수량을 정할 수 있어요.' : '수량 변경 후 아래 버튼으로 반영해주세요. 양쪽 목록을 비우고 올리면 게시를 철회할 수 있어요.';
+ $('#giveN').textContent=`${sum(draft.give)}장`;
+ $('#giveList').innerHTML=Object.entries(draft.give).map(([id,qty])=>{const c=cardById(id);if(!c)return '';return `<article class="qty-card">${photo(c)}<div class="qty-info"><strong>${esc(c.name)}</strong><small>${metadata(c)}</small><b>${qty}장 보유</b><div class="stepper"><button data-step="-1" data-kind="give" data-id="${id}" aria-label="수량 줄이기">−</button><input type="number" min="1" max="99" value="${qty}" data-qty="${id}" data-kind="give" aria-label="보유수량"><button data-step="1" data-kind="give" data-id="${id}" aria-label="수량 늘리기">＋</button><button class="remove" data-remove="${id}" data-kind="give">선택 해제</button></div></div></article>`;}).join('') || '<div class="empty">보유 포카를 도감에서 선택해주세요.</div>';
+ $('#wantN').textContent='';
+ $('#wantList').innerHTML=Object.keys(draft.give).map(id=>{const r=ruleFor(id);return `<article class="panel"><h2>${esc(cardById(id)?.name)} ↔ 교환 후보</h2><div class="member-buttons"><button data-any="${id}" aria-pressed="${r.any}">아무거나 가능</button>${MEMBERS.map(m=>`<button data-want-member="${m}" data-offer="${id}" aria-pressed="${r.members.includes(m)}">${m} 모든 종류</button>`).join('')}</div><p>${r.ids.map(cid=>esc(cardById(cid)?.name)).join(', ') || '특정 포카 선택 없음'}</p><button class="text-button" data-offer-select="${id}">도감에서 후보 복수 선택</button></article>`;}).join('') || '<div class="empty">보유 포카마다 원하는 포카를 여러 개 고를 수 있어요.</div>';
+ $('#publishBtn').disabled=!ready || busy || !current.me?.day || !current.account;
+ $('#draftNote').textContent='후보 중 하나와 교환하면 보유수량만 1장 줄어들어요. 수정 후 목록에 반영해주세요.';
 }
 function renderTrades() {
- const me = current.me;
- const quantities = new Map($$('[data-match-key]').map(input => [input.dataset.matchKey,input.value]));
- $('#badge').textContent = current.matches.length; $('#matchCount').textContent = current.matches.length;
- $('#matchDay').textContent = me?.day ? `${me.day} · ${current.count}명 참여 중 · 같은 날짜끼리 매칭해요` : '내 교환에서 날짜에 먼저 참여해주세요.';
- $('#pendingList').innerHTML = current.trades.filter(t => t.status === 'pending').map(t => {
-  const sender = t.from === me?.id;
-  return `<article class="match"><span class="pill">${sender?'상대 확인 대기':'완료 확인 요청'}</span><h2>${esc(sender?t.toNick:t.fromNick)}님과 ${t.quantity || 1}장씩 교환</h2>${swap(sender?t.give:t.receive,sender?t.receive:t.give)}<div class="actions">${sender?'':`<button data-confirm-trade="${t.id}">교환 완료 확인</button>`}<button data-cancel-trade="${t.id}">${sender?'요청 취소':'아직 교환 안 했어요'}</button></div></article>`;
+ const me=current.me, owner=current.account?.id;
+ $('#badge').textContent=current.matches.length;$('#matchCount').textContent=current.matches.filter(m=>m.mutual).length;
+ $('#matchDay').textContent=me?.day?`${me.day} · ${current.count}명 참여 중`:'내 교환에서 날짜에 먼저 참여해주세요.';
+ $('#pendingList').innerHTML=current.trades.filter(t=>['awaiting','reserved','pending'].includes(t.status)).map(t=>{
+ const sender=t.from===owner, completionBy=t.completionBy || t.from;
+ const label=t.status==='awaiting'?'약속 요청':t.status==='reserved'?'약속 중':'완료 확인 대기';
+ return `<article class="match"><span class="pill">${label}</span><h2>${esc(sender?t.toNick:t.fromNick)}님 · #${esc(sender?t.toNo:t.fromNo)}</h2>${swap(sender?t.give:t.receive,sender?t.receive:t.give)}<p class="muted">${t.expiresAt?esc(new Date(t.expiresAt).toLocaleTimeString('ko-KR'))+'까지 · 15분 후 자동 해제':''}</p><div class="actions">${t.status==='awaiting'&&!sender?`<button data-trade-action="accept" data-trade-id="${t.id}">약속 수락</button>`:''}${t.status==='reserved'?`<button data-trade-action="complete" data-trade-id="${t.id}">교환 완료 요청</button><button data-here-card="${sender?t.give.id:t.receive.id}">여기 있어요</button>`:''}${t.status==='pending'&&completionBy!==owner?`<button data-confirm-trade="${t.id}">교환 완료 확인</button>`:''}<button data-cancel-trade="${t.id}">약속 취소</button></div></article>`;
  }).join('');
- $('#matchList').innerHTML = current.matches.map((m,i) => {
-  const key = `${m.peerId}:${m.give.id}:${m.receive.id}`;
-  const quantity = Math.max(1,Math.min(m.maxQty,Number(quantities.get(key)) || 1));
-  return `<article class="match"><div class="top"><h2>${esc(m.nickname)}님</h2><span class="pill">최대 ${m.maxQty}장씩</span></div>${swap(m.give,m.receive)}<label class="trade-quantity">이번에 교환할 수량<input id="tradeQty${i}" data-match-key="${key}" type="number" min="1" max="${m.maxQty}" value="${quantity}" inputmode="numeric">장씩</label><div class="actions"><button data-request="${i}" ${busy?'disabled':''}>교환 완료 요청</button><button data-action="here">여기 있어요</button></div></article>`;
- }).join('') || '<div class="empty">아직 서로 맞는 포카가 없어요.<br>날짜에 참여한 뒤 양쪽 포카를 도감에서 골라 올려주세요.</div>';
- $('#listingList').innerHTML = current.listings.filter(p => p.give.length || p.want.length).map(p => `<article class="match"><h2>${esc(p.nickname)}님</h2><p><b>내놓아요</b> ${p.give.map(c => `${esc(c.name)} ${c.qty}장`).join(', ') || '없음'}</p><p><b>구해요</b> ${p.want.map(c => `${esc(c.name)} ${c.qty}장`).join(', ') || '없음'}</p></article>`).join('') || '<div class="empty">아직 다른 사람이 올린 포카가 없어요.</div>';
- $('#historyList').innerHTML = current.trades.filter(t => t.status === 'completed').sort((a,b) => new Date(b.completedAt)-new Date(a.completedAt)).map(t => {
-  const sender = t.from === userId;
-  return `<article class="match"><span class="pill">교환 완료${t.legacy?' · 1차 베타':''}</span><h2>${esc(sender?t.toNick:t.fromNick)}님과 교환</h2>${swap(sender?t.give:t.receive,sender?t.receive:t.give)}<p class="muted">${esc(t.room)} · ${esc(new Date(t.completedAt).toLocaleString('ko-KR'))}</p></article>`;
- }).join('') || '<div class="empty">아직 완료한 거래가 없어요.</div>';
+ $('#matchList').innerHTML=current.matches.map((m,i)=>`${i===0 || current.matches[i-1].mutual!==m.mutual?`<h2>${m.mutual?'💕 맞교환':'일반 교환 후보'}</h2>`:''}<article class="match"><div class="top"><h2>${esc(m.nickname)}님 · #${esc(m.exchangeNo)}</h2><span class="pill">${m.mutual?'💕 맞교환':'일반 교환 후보'}</span></div>${swap({...m.give,qty:1},{...m.receive,qty:1})}<p class="muted">${m.mutual?'양쪽 교환 조건이 맞아요.':'한쪽 조건만 맞아요. 상대방이 수락하면 약속해요.'}</p><div class="actions"><button data-request="${i}" ${busy?'disabled':''}>1장 교환 약속 요청</button><button data-here-card="${m.give.id}">여기 있어요</button></div></article>`).join('') || '<div class="empty">아직 교환 후보가 없어요.</div>';
+ $('#listingList').innerHTML=current.listings.filter(p=>p.give.length).map(p=>`<article class="match"><h2>${esc(p.nickname)}님 · #${esc(p.exchangeNo)}</h2>${p.give.map(c=>`<p>${esc(c.name)} · ${c.qty}장 보유 · ${c.available?`교환 가능 ${c.available}장`:''}${c.qty-c.available>0?` · 약속 중 ${c.qty-c.available}장`:''}</p>`).join('')}</article>`).join('') || '<div class="empty">아직 다른 사람이 올린 포카가 없어요.</div>';
+ $('#historyList').innerHTML=current.trades.filter(t=>t.status==='completed').sort((a,b)=>new Date(b.completedAt)-new Date(a.completedAt)).map(t=>{const sender=t.from===owner;return `<article class="match"><span class="pill">교환 완료</span><h2>${esc(sender?t.toNick:t.fromNick)}님과 교환</h2>${swap(sender?t.give:t.receive,sender?t.receive:t.give)}<p class="muted">${esc(t.room)} · ${esc(new Date(t.completedAt).toLocaleString('ko-KR'))}</p></article>`;}).join('') || '<div class="empty">아직 완료한 거래가 없어요.</div>';
 }
 function renderHere() {
  const cards = current.me?.give || [];
  hereIndex = cards.length ? (hereIndex + cards.length) % cards.length : 0;
  $('#bigNick').textContent = current.me?.nickname || '';
  $('#hereRoom').textContent = current.me?.day || '';
+ $('#hereNumber').textContent=current.me?.exchange_no ? `교환번호 #${current.me.exchange_no}` : '';
+ const members=cardById(cards[hereIndex]?.id)?.members || [];
+ const colors={'원이':['#111111','#FFFFFF'],'리브':['#FFFFFF','#111111'],'미나미':['#87CEEB','#102A43'],'메이':['#FFD84D','#111111'],'제나':['#E53935','#FFFFFF']};
+ const palette=members.map(m=>colors[m]).filter(Boolean), unit=palette.length>1;
+ $('#hereDialog').style.background=unit?`linear-gradient(135deg,${palette.map(p=>p[0]).join(',')})`:(palette[0]?.[0] || '#111111');
+ $('#hereDialog').style.setProperty('--here-ink',unit?'#FFFFFF':palette[0]?.[1] || '#FFFFFF');
+ $('#hereDialog').style.setProperty('--here-outline',unit || !palette.length || palette[0]?.[1]==='#FFFFFF'?'#111111':'#FFFFFF');
+ $('#hereIdentity').classList.toggle('unit-identity',unit);
  // Keep four-character nicknames huge while fitting longer names on at most two lines.
  $('#bigNick').style.fontSize = `clamp(3.4rem, ${Math.min(18, 72 / Math.min((current.me?.nickname || '').length || 1, 5))}vw, 8rem)`;
  $('#herePhoto').innerHTML = cards.length ? photo(cards[hereIndex],false) : '<div class="empty">현재 올린 포카가 없어요.</div>';
@@ -105,8 +114,13 @@ function renderHere() {
 }
 function render() {
  const joined = !!current.me?.day;
+ $('#loginPanel').hidden=!!current.account;$('#accountPanel').hidden=!current.account;
+ $('#accountName').textContent=current.account?`${current.account.nickname}님`:'';
+ $('#loginBtn').disabled=$('#signupBtn').disabled=busy || !ready;
+ $('#nick').readOnly=true;$('#nick').value=current.account?.nickname || '';
+ $('#logoutBtn').disabled=busy;
  $('#joinForm').hidden = joined; $('#venue').hidden = !joined;
- $('#joinBtn').disabled = !ready || busy; $('#leaveBtn').disabled = busy;
+ $('#joinBtn').disabled = !ready || busy || !current.account; $('#leaveBtn').disabled = busy;
  $('#venueName').textContent = current.me?.day || ''; $('#myNickname').textContent = `${current.me?.nickname || ''}님으로 참여 중`;
  $('#count').textContent = `${current.count}명 참여 중`;
  renderCatalog(); renderSelections(); renderTrades();
@@ -128,22 +142,23 @@ async function loadPhotos() {
 }
 function apply(next) {
  const previous = current.me;
+ if (initialized && current.account?.id !== next.account?.id) initialized=false;
  if (!initialized) {
   const saved = readLocal('pocaBeta2Draft',null);
-  draft = saved?.owner === userId && saved.revision === (next.me?.revision ?? null) ? {give:saved.give || {},want:saved.want || {}} : serverDraft(next.me);
+  draft = saved?.owner === userId && saved.account === (next.account?.id ?? null) && saved.revision === (next.me?.revision ?? null) ? {give:saved.give || {},want:{},conditions:saved.conditions || {}} : serverDraft(next.me);
   initialized = true;
   if (next.me) $('#nick').value = next.me.nickname;
  } else if ((previous?.revision ?? null) !== (next.me?.revision ?? null)) {
   draft = serverDraft(next.me);
  }
- current = next;
+ current = next; draft.conditions ||= {}; if(!draft.give[activeOffer])activeOffer=Object.keys(draft.give)[0] || ''; syncWanted();
  for (const type of ['give','want']) for (const [id,qty] of Object.entries(draft[type])) if (!cardById(id) || !Number.isInteger(qty) || qty<1 || qty>99) delete draft[type][id];
  setFilter('#eventFilter','event','전체 행사'); setFilter('#kindFilter','kind','전체 종류'); setFilter('#memberFilter','member','전체 멤버');
  saveDraft(); render(); void loadPhotos(); subscribe();
 }
 function subscribe() {
  if (!client || !userId) return;
- const key = `${userId}:${current.me?.day || ''}`;
+ const key = `${userId}:${current.account?.id || ''}:${current.me?.day || ''}`;
  if (subscriptionKey === key) return;
  if (channel) void client.removeChannel(channel);
  subscriptionKey = key;
@@ -153,9 +168,9 @@ function subscribe() {
  });
 }
 async function refresh() {
- if (!client || !userId) return;
+ if (!client || !userId || busy) return;
  const seq = ++refreshSequence;
- const {data,error} = await client.rpc('poca2_state');
+ const {data,error} = await client.rpc('poca3_state');
  if (seq !== refreshSequence) return;
  if (error) { $('#connection').textContent='연결 재시도 중'; return; }
  ready = true; apply(data); $('#connection').textContent='● 연결됨';
@@ -163,8 +178,8 @@ async function refresh() {
 async function action(name,input = {}) {
  const keepSelection = name === 'join' && !current.me?.day ? structuredClone(draft) : null;
  ++refreshSequence;
- const {data,error} = await client.rpc('poca2_action',{action:name,input});
- if (error) { await refresh(); throw error; }
+ const {data,error} = await client.rpc('poca3_action',{action:name,input});
+ if (error) { const latest=await client.rpc('poca3_state'); if(!latest.error)apply(latest.data); throw error; }
  ++refreshSequence; apply(data);
  if (keepSelection) { draft = keepSelection; saveDraft(); render(); }
  return data;
@@ -189,33 +204,31 @@ function changeQty(type,id,value) {
  const quantity = Math.max(1,Math.min(99,Math.floor(Number(value) || 1)));
  draft[type][id] = quantity; saveDraft(); renderCatalog(); renderSelections();
 }
-async function checkNickname() {
- const sequence=++nicknameSequence, nickname=$('#nick').value.trim();
- if (!ready || !nickname) return;
- const {data,error}=await client.rpc('poca2_action',{action:'nickname',input:{nickname}});
- if (sequence!==nicknameSequence || nickname!==$('#nick').value.trim()) return;
- $('#nickStatus').textContent=error?'참여할 때 닉네임을 다시 확인해요.':data.available?'✓ 사용 가능한 닉네임이에요.':'이미 사용 중인 닉네임이에요.';
- $('#nickStatus').className=data?.available?'muted nickname-ok':'muted nickname-error';
-}
 $$('nav button').forEach(b=>b.onclick=()=>showTab(b.dataset.tab));
 $$('[data-mode]').forEach(b=>b.onclick=()=>choose(b.dataset.mode));
 $('#goRegister').onclick=()=>showTab('register');
 $('#search').oninput=renderCatalog;
 for (const id of ['eventFilter','kindFilter','memberFilter']) $(`#${id}`).onchange=renderCatalog;
-$('#nick').oninput=()=>{ ++nicknameSequence; clearTimeout(nickTimer); $('#nickStatus').textContent='확인 중…'; nickTimer=setTimeout(checkNickname,350); };
 $('#joinForm').onsubmit=e=>{ e.preventDefault(); void run(async()=>{ await action('join',{nickname:$('#nick').value.trim(),day:$('#day').value}); try{localStorage.setItem('pocaNick',$('#nick').value.trim());}catch{} toast('선택한 날짜로 참여했어요. 포카 목록을 올려주세요.'); }); };
-$('#publishBtn').onclick=()=>void run(async()=>{ const selection=type=>Object.entries(draft[type]).map(([id,qty])=>({id,qty})); await action('publish',{give:selection('give'),want:selection('want'),revision:current.me.revision}); showTab('matches'); toast('교환 목록에 반영했어요.'); });
+$('#publishBtn').onclick=()=>void run(async()=>{ const selection=type=>Object.entries(draft[type]).map(([id,qty])=>({id,qty})); await action('publish',{give:selection('give'),conditions:draft.conditions,revision:current.me.revision}); showTab('matches'); toast('교환 목록에 반영했어요.'); });
 $('#leaveBtn').onclick=async()=>{if(await confirm('현장에서 나갈까요?','올린 포카와 완료 대기 요청을 철회해요. 공용 도감과 거래 내역은 남아요.')) void run(async()=>{await action('leave');toast('현장에서 나왔어요. 도감은 그대로 남아 있어요.');});};
 document.addEventListener('click',e=>{
  const b=e.target.closest('button'); if(!b)return;
  if(b.dataset.choose)choose(b.dataset.choose);
  if(b.dataset.action==='here') { if(!current.me?.day)return toast('교환 날짜에 먼저 참여해주세요.'); hereIndex=0;renderHere();$('#hereDialog').showModal(); }
- if(b.dataset.pick && !busy) {const id=b.dataset.pick;if(draft[mode][id])delete draft[mode][id];else{if(Object.keys(draft[mode]).length>=30)return toast('각각 최대 30종까지 선택할 수 있어요.');draft[mode][id]=1;}saveDraft();renderCatalog();renderSelections();}
+ if(b.dataset.pick && !busy) {const id=b.dataset.pick;if(mode==='want'){if(!activeOffer)return toast('보유 포카를 먼저 선택해주세요.');const r=ruleFor(activeOffer);r.ids=r.ids.includes(id)?r.ids.filter(v=>v!==id):[...r.ids,id];syncWanted();}else{if(draft.give[id]){delete draft.give[id];delete draft.conditions[id];}else{if(Object.keys(draft.give).length>=30)return toast('최대 30종까지 선택할 수 있어요.');draft.give[id]=1;ruleFor(id);}}saveDraft();renderCatalog();renderSelections();}
+ if(b.dataset.offerSelect){activeOffer=b.dataset.offerSelect;syncWanted();choose('want');}
+ if(b.dataset.any && !busy){const r=ruleFor(b.dataset.any);r.any=!r.any;saveDraft();renderSelections();}
+ if(b.dataset.wantMember && !busy){const r=ruleFor(b.dataset.offer),m=b.dataset.wantMember;r.members=r.members.includes(m)?r.members.filter(v=>v!==m):[...r.members,m];saveDraft();renderSelections();}
+ if(b.dataset.filterMember!==undefined){filterMember=b.dataset.filterMember;renderCatalog();}
+ if(b.dataset.editorMember!==undefined){const m=b.dataset.editorMember;editorMembers=m==='단체'?(editorMembers.length===5?[]:[...MEMBERS]):editorMembers.includes(m)?editorMembers.filter(v=>v!==m):[...editorMembers,m];renderMemberEditor();}
+ if(b.dataset.hereCard){if(!current.me?.day)return toast('교환 날짜에 먼저 참여해주세요.');hereIndex=Math.max(0,current.me.give.findIndex(c=>c.id===b.dataset.hereCard));renderHere();$('#hereDialog').showModal();}
+ if(b.dataset.tradeAction)void run(async()=>{await action(b.dataset.tradeAction,{id:b.dataset.tradeId});toast('약속 상태를 반영했어요.');});
  if(b.dataset.step)changeQty(b.dataset.kind,b.dataset.id,(draft[b.dataset.kind][b.dataset.id]||1)+Number(b.dataset.step));
- if(b.dataset.remove && !busy){delete draft[b.dataset.kind][b.dataset.remove];saveDraft();renderCatalog();renderSelections();}
+ if(b.dataset.remove && !busy){delete draft[b.dataset.kind][b.dataset.remove];delete draft.conditions[b.dataset.remove];saveDraft();renderCatalog();renderSelections();}
  if(b.dataset.import && !busy)openEditor(legacy.find(c=>c.id===b.dataset.import));
- if(b.dataset.request!==undefined && !busy){const i=Number(b.dataset.request),m=current.matches[i],quantity=Number($(`#tradeQty${i}`).value);if(!Number.isInteger(quantity)||quantity<1||quantity>m.maxQty)return toast('교환 가능한 수량을 입력해주세요.');void run(async()=>{await action('request',{peerId:m.peerId,giveId:m.give.id,receiveId:m.receive.id,quantity});toast('상대방에게 완료 확인을 요청했어요.');});}
- if(b.dataset.confirmTrade)void(async()=>{if(await confirm('교환을 완료했나요?','요청한 장수만큼 양쪽의 내놓아요·구해요 수량이 줄어들고 거래 내역에 남아요.'))void run(async()=>{await action('confirm',{id:b.dataset.confirmTrade});toast('교환 완료! 남은 수량과 거래 내역을 반영했어요.');});})();
+ if(b.dataset.request!==undefined && !busy){const m=current.matches[Number(b.dataset.request)];void run(async()=>{await action('request',{peerId:m.peerId,giveId:m.give.id,receiveId:m.receive.id});toast('15분간 1장씩 예약하고 상대방에게 약속을 요청했어요.');});}
+ if(b.dataset.confirmTrade)void(async()=>{if(await confirm('교환을 완료했나요?','양쪽의 보유수량이 1장씩 줄어들고 거래 내역에 남아요.'))void run(async()=>{await action('confirm',{id:b.dataset.confirmTrade});toast('교환 완료! 남은 수량과 거래 내역을 반영했어요.');});})();
  if(b.dataset.cancelTrade)void run(async()=>{await action('cancel',{id:b.dataset.cancelTrade});toast('완료 요청을 취소했어요.');});
 });
 document.addEventListener('change',e=>{if(e.target.dataset.qty)changeQty(e.target.dataset.kind,e.target.dataset.qty,e.target.value);});
@@ -225,8 +238,9 @@ let touchStart;
 $('#herePhoto').addEventListener('touchstart',e=>{touchStart=e.changedTouches[0].clientX;},{passive:true});
 $('#herePhoto').addEventListener('touchend',e=>{const delta=e.changedTouches[0].clientX-touchStart;if(Math.abs(delta)>45){hereIndex+=delta<0?1:-1;renderHere();}},{passive:true});
 function openEditor(old) {
+ if(!current.admin)return; editorMembers=[];
  importId=old?.id || null;photoData=old?.img || '';uploadedPhoto='';generatedName='';$('#cardForm').reset();$('#editorError').textContent='';
- $('#cardName').value=old?.name || '';$('#preview').hidden=!old;$('#preview').src=old?imageURL(old):'';$('#editor').showModal();
+ renderMemberEditor();$('#cardName').value=old?.name || '';$('#preview').hidden=!old;$('#preview').src=old?imageURL(old):'';$('#editor').showModal();
 }
 $('#addBtn').onclick=()=>{if(ready&&!busy)openEditor();};$('#closeEditor').onclick=()=>{if(!photoLoading&&!busy)$('#editor').close();};
 $('#editor').addEventListener('cancel',e=>{if(photoLoading||busy)e.preventDefault();});
@@ -250,7 +264,7 @@ $('#photo').onchange=async()=>{
 };
 $('#cardForm').onsubmit=e=>{
  e.preventDefault();if(photoLoading||busy||!ready)return;
- const info={event:$('#catalogEvent').value.trim(),kind:$('#catalogKind').value.trim(),member:$('#catalogMember').value.trim(),name:$('#cardName').value.trim()};
+ const info={event:$('#catalogEvent').value.trim(),kind:$('#catalogKind').value.trim(),member:$('#catalogMember').value.trim(),members:editorMembers,name:$('#cardName').value.trim()};
  if(!photoData||Object.values(info).some(v=>!v)){ $('#editorError').textContent='사진과 도감 정보를 모두 입력해주세요.';return;}
  void run(async()=>{
   $('#saveCard').disabled=true;$('#editorError').textContent='';
@@ -264,14 +278,31 @@ $('#cardForm').onsubmit=e=>{
      const path=`${userId}/${crypto.randomUUID()}.jpg`;const {error}=await client.storage.from('poca-photos').upload(path,blob,{contentType:'image/jpeg',upsert:false});if(error)throw error;uploadedPhoto=path;
     }
    }
-   const result=await action('catalog_add',{...info,img:uploadedPhoto});
+   await action('catalog_add',{...info,img:uploadedPhoto});
    if(importId){imported.add(importId);try{localStorage.setItem('pocaImportedCatalog',JSON.stringify([...imported]));}catch{}}
-   if(Object.keys(draft[mode]).length<30)draft[mode][result.addedId]=1;
-   saveDraft();$('#editor').close();$('#search').value='';$('#eventFilter').value='';$('#kindFilter').value='';$('#memberFilter').value='';render();toast('공용 도감에 저장했어요. 사진과 이름은 계속 남아요.');
+   // Catalog registration does not add a personal offer.
+   saveDraft();$('#editor').close();$('#search').value='';$('#eventFilter').value='';$('#kindFilter').value='';$('#memberFilter').value='';filterMember='';render();toast('공용 도감에 저장했어요. 사진과 이름은 계속 남아요.');
   }catch(error){$('#editorError').textContent=error.message;}
   finally{$('#saveCard').disabled=false;}
  });
 };
+function renderMemberEditor(){
+ $('#editorMembers').innerHTML=[...MEMBERS,'단체'].map(m=>`<button type="button" data-editor-member="${m}" aria-pressed="${m==='단체'?editorMembers.length===5:editorMembers.includes(m)}">${m}</button>`).join('');
+ $('#catalogMember').value=editorMembers.length===5?'단체':MEMBERS.filter(m=>editorMembers.includes(m)).join(' + ');
+ $('#catalogMember').dispatchEvent(new Event('input'));
+}
+$('#offerPicker').onchange=()=>{activeOffer=$('#offerPicker').value;syncWanted();renderCatalog();};
+async function login(register){
+ if(!$('#loginForm').reportValidity() || busy || !ready)return;
+ const nickname=$('#loginNick').value.trim(),pin=$('#loginPin').value;
+ const beforeLogin=!current.account?structuredClone(draft):null;
+ busy=true;++refreshSequence;render();$('#loginError').textContent='';
+ try{const {data,error}=await client.rpc('poca3_login',{nickname,pin,register});if(error || data?.error)throw Error(error?.message || data.error);++refreshSequence;initialized=false;apply(data);if(beforeLogin && !data.me?.give?.length && Object.keys(beforeLogin.give).length){draft=beforeLogin;saveDraft();render();}$('#loginPin').value='';toast('등록정보와 거래내역을 불러왔어요.');}
+ catch(e){$('#loginError').textContent=e.message;}
+ finally{busy=false;render();}
+}
+$('#loginForm').onsubmit=e=>{e.preventDefault();void login(false);};$('#signupBtn').onclick=()=>void login(true);
+$('#logoutBtn').onclick=()=>void run(async()=>{await action('logout');draft={give:{},want:{},conditions:{}};saveDraft();$('#loginPin').value='';toast('로그아웃했어요. 등록정보와 내역은 남아요.');});
 const now=new Date();$('#day').value=`${now.getFullYear()}-${String(now.getMonth()+1).padStart(2,'0')}-${String(now.getDate()).padStart(2,'0')}`;
 try{$('#nick').value=localStorage.getItem('pocaNick')||'';}catch{}
 render();
@@ -279,7 +310,7 @@ if(configured){
  try{
   client=createClient(url,publicKey);const {data:{session},error}=await client.auth.getSession();if(error)throw error;
   let active=session;if(!active){const signed=await client.auth.signInAnonymously();if(signed.error)throw signed.error;active=signed.data.session;}
-  userId=active.user.id;await refresh();if(!ready)throw new Error('2차 베타 데이터베이스 연결을 확인해주세요.');
+  userId=active.user.id;await refresh();if(!ready)throw new Error('데이터베이스 연결을 확인해주세요.');
   setInterval(()=>{if(!document.hidden)void refresh();},15000);document.addEventListener('visibilitychange',()=>{if(!document.hidden)void refresh();});
  }catch(error){$('#connection').textContent='연결 실패';toast(error.message);}
 }else{$('#connection').textContent='연결 준비 중';$('#catalogCount').textContent='Supabase 연결 설정이 필요해요.';}
