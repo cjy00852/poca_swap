@@ -151,7 +151,7 @@ function apply(next) {
  if(next.account && next.sessionExpiresAt && Date.parse(next.sessionExpiresAt)<=Date.now())next={...next,account:null,admin:false,me:null,matches:[],listings:[],trades:[],count:0};
  clearTimeout(sessionTimer);
  if(next.account && next.sessionExpiresAt)sessionTimer=setTimeout(expireSession,Math.max(0,Date.parse(next.sessionExpiresAt)-Date.now()));
- if(current.account && !next.account){for(const dialog of $('dialog[open]'))dialog.close();$('#loginPin').value='';toast('로그아웃됐어요. 다시 로그인해주세요.');}
+ if(current.account && !next.account){for(const dialog of document.querySelectorAll('dialog[open]'))dialog.close();$('#loginPin').value='';toast('로그아웃됐어요. 다시 로그인해주세요.');}
 
  const previous = current.me;
  if (initialized && current.account?.id !== next.account?.id) initialized=false;
