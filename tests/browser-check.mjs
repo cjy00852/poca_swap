@@ -59,7 +59,7 @@ try{
 
  await a.locator('#catalogColumns').selectOption('6');assert.equal(await a.locator('#cards').evaluate(el=>getComputedStyle(el).gridTemplateColumns.split(' ').length),6);
  await a.locator(`[data-edit-card="${Z}"]`).click();await a.locator('#cardName').fill('수정한 포카');
- await a.locator('#existingEvent').selectOption({label:'기존 포카'});assert.equal(await a.locator('#catalogEvent').inputValue(),'기존 포카');await a.locator('#existingEvent').focus();
+ await a.locator('#existingEvent').selectOption({label:'기존 포카'});assert.equal(await a.locator('#catalogEvent').inputValue(),'기존 포카');await a.locator('#existingKind').selectOption({label:'포카'});assert.equal(await a.locator('#catalogKind').inputValue(),'포카');await a.locator('#existingKind').focus();
  await a.evaluate(()=>{window.editorMutations=0;window.editorObserver=new MutationObserver(()=>window.editorMutations++);window.editorObserver.observe(document.querySelector('#eventOptions'),{childList:true});});
  await refresh(a);await a.waitForTimeout(300);
  assert.equal(await a.evaluate(()=>window.editorMutations),0,'background refresh must not rebuild editor suggestions');

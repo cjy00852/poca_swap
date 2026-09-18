@@ -273,8 +273,12 @@ function openEditor(old,editing=false) {
  editorMembers=editing?[...(old.members || [])]:[];renderMemberEditor();$('#catalogEvent').value=editing?old.event:'';$('#catalogKind').value=editing?old.kind:'';$('#editorTitle').textContent=editing?'도감 사진 · 정보 수정':'공용 도감에 추가';$('#saveCard').textContent=editing?'수정 저장':'공용 도감에 저장';$('#cardName').value=old?.name || '';
  const events=[...new Set(current.catalog.map(c=>c.event))].sort((a,b)=>a.localeCompare(b,'ko'));
  $('#existingEvent').innerHTML='<option value="">직접 입력</option>'+events.map(event=>`<option value="${esc(event)}">${esc(event)}</option>`).join('');$('#existingEvent').value=editing?old.event:'';
+ const kinds=[...new Set(current.catalog.map(c=>c.kind))].sort((a,b)=>a.localeCompare(b,'ko'));
+ $('#existingKind').innerHTML='<option value="">직접 입력</option>'+kinds.map(kind=>`<option value="${esc(kind)}">${esc(kind)}</option>`).join('');$('#existingKind').value=editing?old.kind:'';
  $('#preview').hidden=!old;$('#preview').src=old?imageURL(old):'';$('#editor').showModal();
 }
+$('#existingKind').onchange=()=>{if($('#existingKind').value){$('#catalogKind').value=$('#existingKind').value;$('#catalogKind').dispatchEvent(new Event('input'));}else $('#catalogKind').focus();};
+$('#catalogKind').addEventListener('input',()=>{$('#existingKind').value=[...$('#existingKind').options].some(o=>o.value===$('#catalogKind').value)?$('#catalogKind').value:'';});
 $('#existingEvent').onchange=()=>{if($('#existingEvent').value)$('#catalogEvent').value=$('#existingEvent').value;else $('#catalogEvent').focus();};
 $('#catalogEvent').oninput=()=>{$('#existingEvent').value=[...$('#existingEvent').options].some(o=>o.value===$('#catalogEvent').value)?$('#catalogEvent').value:'';};
 $('#addBtn').onclick=()=>{if(ready&&!busy)openEditor();};$('#closeEditor').onclick=()=>{if(!photoLoading&&!busy)$('#editor').close();};
