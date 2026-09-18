@@ -7,6 +7,7 @@ const url = import.meta.env.VITE_SUPABASE_URL, publicKey = import.meta.env.VITE_
 const configured = /^https:\/\//.test(url || '') && !!publicKey && !url.includes('YOUR_PROJECT');
 const emptyState = { me:null, catalog:[], matches:[], listings:[], trades:[], count:0 };
 let chat;
+let sessionTimer;
 let participants=[],participantRequest=0;
 let notifiedOwner='',seenMatches=new Set(),alertKey='',expiryRefresh=0;
 let current = emptyState, draft = { give:{}, want:{}, conditions:{} }, mode = 'give';
@@ -145,6 +146,11 @@ async function loadPhotos() {
  } finally { photoRequest = false; }
 }
 function apply(next) {
+ if(next.account && next.sessionExpiresAt && Date.parse(next.sessionExpiresAt)<=Date.now())next={...next,account:null,admin:false,me:null,matches:[],listings:[],trades:[],count:0};
+ clearTimeout(sessionTimer);
+ if(next.account && next.sessionExpiresAt)sessionTimer=setTimeout(expireSession,Math.max(0,Date.parse(next.sessionExpiresAt)-Date.now()));
+ if(current.account && !next.account){for(const dialog of $('dialog[open]'))dialog.close();$('#loginPin').value='';toast('로그아웃됐어요. 다시 로그인해주세요.');}
+
  const previous = current.me;
  if (initialized && current.account?.id !== next.account?.id) initialized=false;
  if (!initialized) {
@@ -158,7 +164,7 @@ function apply(next) {
  current = next; draft.conditions ||= {};for(const [id,r] of Object.entries(draft.conditions)){if(!current.catalog.some(c=>c.id===id))delete draft.conditions[id];else r.ids=r.ids.filter(cid=>current.catalog.some(c=>c.id===cid));} if(!draft.give[activeOffer])activeOffer=Object.keys(draft.give)[0] || ''; syncWanted();
  for (const type of ['give','want']) for (const [id,qty] of Object.entries(draft[type])) if (!cardById(id) || !Number.isInteger(qty) || qty<1 || qty>99) delete draft[type][id];
  setFilter('#eventFilter','event','전체 행사'); setFilter('#kindFilter','kind','전체 종류'); setFilter('#memberFilter','member','전체 멤버');
- saveDraft(); render(); notifyMatches(); void loadPhotos(); subscribe(); void chat?.refresh();
+ saveDraft(); render(); if(current.admin && $('#participantsDialog').open)void loadParticipants(); notifyMatches(); void loadPhotos(); subscribe(); void chat?.refresh();
 }
 function subscribe() {
  if (!client || !userId) return;
@@ -387,6 +393,19 @@ function updateCountdowns(){
 }
 setInterval(updateCountdowns,1000);
 
-function renderParticipants(){const q=normalize($('#participantSearch').value);const rows=participants.filter(p=>normalize([p.nickname,p.day,p.region].join(' ')).includes(q));$('#participantCount').textContent=rows.length+'명';$('#participantList').innerHTML=rows.map(p=>`<article class="participant"><strong>${esc(p.nickname)}</strong><span>교환번호 #${esc(p.exchangeNo)}</span><small>${esc(p.day)} · ${esc(p.region)}</small></article>`).join('') || '<p class="muted">참여자가 없습니다.</p>';}
+function renderParticipants(){const q=normalize($('#participantSearch').value);const rows=participants.filter(p=>normalize([p.nickname].join(' ')).includes(q));$('#participantCount').textContent=rows.length+'명';$('#participantList').innerHTML=rows.map(p=>`<article class="participant"><strong>${esc(p.nickname)}</strong><span>${p.devices}개 기기</span><small>로그인 만료 ${esc(new Date(p.expiresAt).toLocaleTimeString('ko-KR'))}</small>${p.id===current.account?.id?'<span>내 계정</span>':`<button class="danger" data-force-logout="${p.id}">강제 로그아웃</button>`}</article>`).join('') || '<p class="muted">로그인된 계정이 없습니다.</p>';}
 async function loadParticipants(){if(!current.admin)return;const owner=current.account.id,request=++participantRequest;$('#refreshParticipants').disabled=true;$('#participantCount').textContent='불러오는 중';try{const {data,error}=await client.rpc('poca_admin_participants');if(request!==participantRequest || current.account?.id!==owner || !current.admin)return;if(error)throw error;participants=data;renderParticipants();}catch(e){if(request===participantRequest){participants=[];$('#participantList').replaceChildren();$('#participantCount').textContent=e.message;}}finally{if(request===participantRequest)$('#refreshParticipants').disabled=false;}}
 $('#adminParticipants').onclick=()=>{$('#participantsDialog').showModal();void loadParticipants();};$('#closeParticipants').onclick=()=>$('#participantsDialog').close();$('#refreshParticipants').onclick=()=>void loadParticipants();$('#participantSearch').oninput=renderParticipants;
+
+function expireSession(){if(!current.account || !current.sessionExpiresAt || Date.parse(current.sessionExpiresAt)>Date.now())return;++refreshSequence;initialized=false;apply({...current,account:null,admin:false,me:null,matches:[],listings:[],trades:[],count:0});}
+document.addEventListener('visibilitychange',()=>{if(!document.hidden)expireSession();});
+// Verify expiry and revocation even while the editor is open.
+let checkingSession=false;
+async function checkSession(){
+ expireSession();if(!current.account || !client || busy || checkingSession || document.hidden || !$('#editor').open)return;
+ checkingSession=true;const owner=current.account.id,sequence=refreshSequence;
+ try{const {data,error}=await client.rpc('poca3_state');if(error || current.account?.id!==owner || sequence!==refreshSequence)return;if(!data.account){++refreshSequence;apply(data);}else if($('#participantsDialog').open)void loadParticipants();}finally{checkingSession=false;}
+}
+setInterval(()=>void checkSession(),15000);
+document.addEventListener('visibilitychange',()=>{if(!document.hidden)void checkSession();});
+document.addEventListener('click',e=>{const b=e.target.closest('[data-force-logout]');if(!b || !current.admin || busy)return;const person=participants.find(p=>p.id===b.dataset.forceLogout);if(!person)return;void(async()=>{if(!await confirm(person.nickname+'님을 로그아웃시킬까요?','이 계정으로 로그인한 모든 기기에서 로그아웃됩니다. 포카와 거래내역은 유지됩니다.'))return;await run(async()=>{const {data,error}=await client.rpc('poca_admin_logout',{target:person.id});if(error)throw error;participants=data;renderParticipants();toast('강제 로그아웃했습니다.');});})();});
