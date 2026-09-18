@@ -11,7 +11,7 @@ await db.exec(readFileSync('supabase/migrations/002_shared_catalog.sql','utf8'))
 await db.exec('create schema extensions');
 await db.exec(readFileSync('supabase/migrations/003_spec.sql','utf8'));
 await db.exec(readFileSync('supabase/migrations/004_member_catalog.sql','utf8'));
-for(const f of ['005_catalog_edit','006_reset_selections','007_chat','008_signup_device','009_login_wait','010_remove_login_cooldown','011_next_features','012_admin_participants','013_session_management','014_admin_records'])await db.exec(readFileSync(`supabase/migrations/${f}.sql`,'utf8'));
+for(const f of ['005_catalog_edit','006_reset_selections','007_chat','008_signup_device','009_login_wait','010_remove_login_cooldown','011_next_features','012_admin_participants','013_session_management','014_admin_records','015_presence'])await db.exec(readFileSync(`supabase/migrations/${f}.sql`,'utf8'));
 const browser = await chromium.launch({channel:process.env.BROWSER_CHANNEL || 'chrome',headless:true});
 let queue=Promise.resolve();const errors=[];
 const X='10000000-0000-0000-0000-000000000001',Y='10000000-0000-0000-0000-000000000002',Z='10000000-0000-0000-0000-000000000003';
@@ -27,7 +27,7 @@ async function user(id){
     await db.query("select set_config('request.jwt.claim.sub',$1,false)",[id]);
     if(url.pathname.startsWith('/rest/v1/rpc/')){
      const input=route.request().postDataJSON()||{};
-     const result=url.pathname.endsWith('poca_chat')?await db.query('select poca_chat($1,$2::jsonb) as data',[input.action,JSON.stringify(input.input)]):url.pathname.endsWith('poca_catalog_manage')?await db.query('select poca_catalog_manage($1,$2::jsonb) as data',[input.operation,JSON.stringify(input.input)]):url.pathname.endsWith('poca_reset_selections')?await db.query('select poca_reset_selections($1,$2) as data',[input.selection,input.expected_revision]):url.pathname.endsWith('poca3_state')?await db.query('select poca3_state() as data'):url.pathname.endsWith('poca3_login')?await db.query('select poca3_login($1,$2,$3) as data',[input.nickname,input.pin,input.register]):await db.query('select poca3_action($1,$2::jsonb) as data',[input.action,JSON.stringify(input.input)]);
+     const result=url.pathname.endsWith('poca_presence_ping')?await db.query('select poca_presence_ping($1) as data',[input.tab_id]):url.pathname.endsWith('poca_chat')?await db.query('select poca_chat($1,$2::jsonb) as data',[input.action,JSON.stringify(input.input)]):url.pathname.endsWith('poca_catalog_manage')?await db.query('select poca_catalog_manage($1,$2::jsonb) as data',[input.operation,JSON.stringify(input.input)]):url.pathname.endsWith('poca_reset_selections')?await db.query('select poca_reset_selections($1,$2) as data',[input.selection,input.expected_revision]):url.pathname.endsWith('poca3_state')?await db.query('select poca3_state() as data'):url.pathname.endsWith('poca3_login')?await db.query('select poca3_login($1,$2,$3) as data',[input.nickname,input.pin,input.register]):await db.query('select poca3_action($1,$2::jsonb) as data',[input.action,JSON.stringify(input.input)]);
      await route.fulfill({json:result.rows[0].data});
     }else if(url.pathname==='/storage/v1/object/sign/poca-photos'){
      const input=route.request().postDataJSON();await route.fulfill({json:input.paths.map(path=>({path,signedURL:`/object/sign/poca-photos/${path}?token=test`}))});

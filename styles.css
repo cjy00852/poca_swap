@@ -16,3 +16,5 @@
 .listed-cards{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:12px}.listed-card{min-width:0;border:1px solid var(--line);border-radius:12px;padding:8px}.listed-card img{display:block;width:100%;aspect-ratio:3/4;object-fit:cover;border-radius:8px}.listed-card strong,.listed-card small,.listed-card span{display:block;overflow-wrap:anywhere}.listed-card strong{font-size:.85rem;margin-top:8px}.listed-card small{font-size:.7rem;color:var(--muted);margin:4px 0}.listed-card span{font-size:.75rem}
 
 .participant{display:grid;grid-template-columns:1fr auto;gap:4px 8px;padding:12px 0;border-bottom:1px solid var(--line)}.participant small{grid-column:1/-1;color:var(--muted)}.participant span{font-size:.75rem}
+
+#onlineCount{font-size:.7rem;padding:5px 8px;white-space:nowrap}#onlineCount:disabled{opacity:1;color:var(--muted);background:transparent}.top{gap:8px}

@@ -7,6 +7,7 @@ const url = import.meta.env.VITE_SUPABASE_URL, publicKey = import.meta.env.VITE_
 const configured = /^https:\/\//.test(url || '') && !!publicKey && !url.includes('YOUR_PROJECT');
 const emptyState = { me:null, catalog:[], matches:[], listings:[], trades:[], count:0 };
 let chat;
+const presenceTab=crypto.randomUUID();let presenceLoading=false,presenceOwner='';
 let recordSection="listings",recordPage=0,recordQuery="",recordRequest=0;
 let sessionTimer;
 let participants=[],participantRequest=0;
@@ -122,7 +123,8 @@ function render() {
  $('#accountName').textContent=current.account?`${current.account.nickname}님`:'';
  $('#loginBtn').disabled=$('#signupBtn').disabled=busy || !ready;
  $('#nick').readOnly=true;$('#nick').value=current.account?.nickname || '';
- $('#logoutBtn').disabled=busy;$('#adminParticipants').hidden=!current.admin;$('#adminRecords').hidden=!current.admin;
+ $('#logoutBtn').disabled=busy;$('#onlineCount').disabled=!current.admin;
+ if(!current.admin){$('#onlineMembers').replaceChildren();if($('#onlineDialog').open)$('#onlineDialog').close();}$('#adminParticipants').hidden=!current.admin;$('#adminRecords').hidden=!current.admin;
  if(!current.admin){++recordRequest;$('#recordsList').replaceChildren();if($('#recordsDialog').open)$('#recordsDialog').close();}
  if(!current.admin){participants=[];++participantRequest;$('#participantList').replaceChildren();if($('#participantsDialog').open)$('#participantsDialog').close();}
  $('#joinForm').hidden = joined; $('#venue').hidden = !joined;
@@ -163,7 +165,7 @@ function apply(next) {
  } else if ((previous?.revision ?? null) !== (next.me?.revision ?? null)) {
   draft = serverDraft(next.me);
  }
- current = next; draft.conditions ||= {};for(const [id,r] of Object.entries(draft.conditions)){if(!current.catalog.some(c=>c.id===id))delete draft.conditions[id];else r.ids=r.ids.filter(cid=>current.catalog.some(c=>c.id===cid));} if(!draft.give[activeOffer])activeOffer=Object.keys(draft.give)[0] || ''; syncWanted();
+ current = next;if(presenceOwner!==(current.account?.id || '')){presenceOwner=current.account?.id || '';void updatePresence();} draft.conditions ||= {};for(const [id,r] of Object.entries(draft.conditions)){if(!current.catalog.some(c=>c.id===id))delete draft.conditions[id];else r.ids=r.ids.filter(cid=>current.catalog.some(c=>c.id===cid));} if(!draft.give[activeOffer])activeOffer=Object.keys(draft.give)[0] || ''; syncWanted();
  for (const type of ['give','want']) for (const [id,qty] of Object.entries(draft[type])) if (!cardById(id) || !Number.isInteger(qty) || qty<1 || qty>99) delete draft[type][id];
  setFilter('#eventFilter','event','전체 행사'); setFilter('#kindFilter','kind','전체 종류'); setFilter('#memberFilter','member','전체 멤버');
  saveDraft(); render(); if(current.admin && $('#participantsDialog').open)void loadParticipants(); notifyMatches(); void loadPhotos(); subscribe(); void chat?.refresh();
@@ -370,7 +372,7 @@ if(configured){
  try{
   client=createClient(url,publicKey);const {data:{session},error}=await client.auth.getSession();if(error)throw error;
   let active=session;if(!active){const signed=await client.auth.signInAnonymously();if(signed.error)throw signed.error;active=signed.data.session;}
-  userId=active.user.id;await refresh();if(!ready)throw new Error('데이터베이스 연결을 확인해주세요.');
+  userId=active.user.id;await refresh();void updatePresence();if(!ready)throw new Error('데이터베이스 연결을 확인해주세요.');
   setInterval(()=>{if(!document.hidden)void refresh();},15000);document.addEventListener('visibilitychange',()=>{if(!document.hidden)void refresh();});
  }catch(error){$('#connection').textContent='연결 실패';toast(error.message);}
 }else{$('#connection').textContent='연결 준비 중';$('#catalogCount').textContent='Supabase 연결 설정이 필요해요.';}
@@ -422,3 +424,13 @@ async function loadRecords(more=false){
 }
 $('#adminRecords').onclick=()=>{$('#recordsDialog').showModal();void loadRecords();};$('#closeRecords').onclick=()=>$('#recordsDialog').close();$('#recordsSearchForm').onsubmit=e=>{e.preventDefault();void loadRecords();};$('#recordsMore').onclick=()=>void loadRecords(true);
 $$('[data-record-section]').forEach(b=>b.onclick=()=>{recordSection=b.dataset.recordSection;$$('[data-record-section]').forEach(el=>el.classList.toggle('on',el===b));void loadRecords();});
+
+async function updatePresence(){
+ if(!client || !userId || presenceLoading || document.hidden)return;presenceLoading=true;const owner=current.account?.id;
+ try{const {data,error}=await client.rpc('poca_presence_ping',{tab_id:presenceTab});if(error)throw error;if(owner!==current.account?.id)return;
+ $('#onlineCount').textContent='현재 접속 '+data.count+'명';$('#onlineStatus').textContent='현재 접속 '+data.count+'명 · 방문자 '+data.visitors+'명';
+ if(current.admin)$('#onlineMembers').innerHTML=data.members.map(n=>`<p>${esc(n)}</p>`).join('') || '<p class="muted">로그인한 접속자가 없습니다.</p>';
+ }catch{ $('#onlineCount').textContent='접속 인원 확인 중';$('#onlineStatus').textContent='연결 후 다시 확인해주세요.';$('#onlineMembers').replaceChildren();}finally{presenceLoading=false;}
+}
+$('#onlineCount').onclick=()=>{if(!current.admin)return;$('#onlineDialog').showModal();void updatePresence();};$('#closeOnline').onclick=()=>$('#onlineDialog').close();
+setInterval(()=>void updatePresence(),30000);document.addEventListener('visibilitychange',()=>{if(!document.hidden)void updatePresence();});
