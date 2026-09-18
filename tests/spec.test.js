@@ -15,7 +15,7 @@ test('spec integration: PIN recovery, member catalog, conditions, reservations, 
  const publish=async(id,target,qty=2)=>act('publish',{give:[{id,qty}],conditions:{[id]:{ids:[target],members:[],any:false}},revision:(await state()).me.revision});
  try{
  await db.exec(bootstrap);await db.exec('create schema extensions');
- for(const file of ['supabase/schema.sql','supabase/migrations/002_shared_catalog.sql','supabase/migrations/003_spec.sql','supabase/migrations/004_member_catalog.sql','supabase/migrations/005_catalog_edit.sql','supabase/migrations/006_reset_selections.sql','supabase/migrations/007_chat.sql','supabase/migrations/008_signup_device.sql','supabase/migrations/009_login_wait.sql','supabase/migrations/010_remove_login_cooldown.sql','supabase/migrations/011_next_features.sql','supabase/migrations/012_admin_participants.sql','supabase/migrations/013_session_management.sql'])await db.exec(readFileSync(file,'utf8'));
+ for(const file of ['supabase/schema.sql','supabase/migrations/002_shared_catalog.sql','supabase/migrations/003_spec.sql','supabase/migrations/004_member_catalog.sql','supabase/migrations/005_catalog_edit.sql','supabase/migrations/006_reset_selections.sql','supabase/migrations/007_chat.sql','supabase/migrations/008_signup_device.sql','supabase/migrations/009_login_wait.sql','supabase/migrations/010_remove_login_cooldown.sql','supabase/migrations/011_next_features.sql','supabase/migrations/012_admin_participants.sql','supabase/migrations/013_session_management.sql','supabase/migrations/014_admin_records.sql'])await db.exec(readFileSync(file,'utf8'));
  await user(A);assert.equal((await state()).account,null);await assert.rejects(()=>act('join',{}));
  assert.ok((await login('A','1234',true)).account);await act('join',{day:'2026-09-18',region:'서울'});await publish(X,Y);
  await assert.rejects(()=>db.query('select poca2_action($1,$2)',['leave',{}]));await assert.rejects(()=>db.query('select * from poca3_accounts'));
@@ -73,5 +73,8 @@ test('spec integration: PIN recovery, member catalog, conditions, reservations, 
  await user(B);await assert.rejects(()=>db.query('select poca_admin_logout($1)',[A]));await user(C);await assert.rejects(()=>db.query('select poca_admin_logout($1)',[A]));
  await db.query('select poca_admin_logout($1)',[B]);await user(B);assert.equal((await state()).account,null);await assert.rejects(()=>act('publish',{}));assert.equal((await login('B')).account.id,B);
  await user(C);await db.exec(`reset role;update poca3_sessions set expires_at=now()-interval '1 second' where device='${C}'`);await user(C);assert.equal((await state()).account,null);await assert.rejects(()=>db.query('select poca_admin_participants()'));assert.ok((await login('A')).trades.some(t=>t.status==='completed'));
+ const records=async section=>(await db.query('select poca_admin_records($1,$2,$3) as data',[section,'',0])).rows[0].data;
+ assert.ok((await records('completed')).rows.length>=2);assert.ok(Array.isArray((await records('listings')).rows));await assert.rejects(()=>records('invalid'));
+ await user(B);await assert.rejects(()=>records('completed'));await assert.rejects(()=>records('listings'));
  }finally{await db.close();}
 });

@@ -7,6 +7,7 @@ const url = import.meta.env.VITE_SUPABASE_URL, publicKey = import.meta.env.VITE_
 const configured = /^https:\/\//.test(url || '') && !!publicKey && !url.includes('YOUR_PROJECT');
 const emptyState = { me:null, catalog:[], matches:[], listings:[], trades:[], count:0 };
 let chat;
+let recordSection="listings",recordPage=0,recordQuery="",recordRequest=0;
 let sessionTimer;
 let participants=[],participantRequest=0;
 let notifiedOwner='',seenMatches=new Set(),alertKey='',expiryRefresh=0;
@@ -121,7 +122,8 @@ function render() {
  $('#accountName').textContent=current.account?`${current.account.nickname}님`:'';
  $('#loginBtn').disabled=$('#signupBtn').disabled=busy || !ready;
  $('#nick').readOnly=true;$('#nick').value=current.account?.nickname || '';
- $('#logoutBtn').disabled=busy;$('#adminParticipants').hidden=!current.admin;
+ $('#logoutBtn').disabled=busy;$('#adminParticipants').hidden=!current.admin;$('#adminRecords').hidden=!current.admin;
+ if(!current.admin){++recordRequest;$('#recordsList').replaceChildren();if($('#recordsDialog').open)$('#recordsDialog').close();}
  if(!current.admin){participants=[];++participantRequest;$('#participantList').replaceChildren();if($('#participantsDialog').open)$('#participantsDialog').close();}
  $('#joinForm').hidden = joined; $('#venue').hidden = !joined;
  $('#joinBtn').disabled = !ready || busy || !current.account; $('#leaveBtn').disabled = busy;
@@ -409,3 +411,14 @@ async function checkSession(){
 setInterval(()=>void checkSession(),15000);
 document.addEventListener('visibilitychange',()=>{if(!document.hidden)void checkSession();});
 document.addEventListener('click',e=>{const b=e.target.closest('[data-force-logout]');if(!b || !current.admin || busy)return;const person=participants.find(p=>p.id===b.dataset.forceLogout);if(!person)return;void(async()=>{if(!await confirm(person.nickname+'님을 로그아웃시킬까요?','이 계정으로 로그인한 모든 기기에서 로그아웃됩니다. 포카와 거래내역은 유지됩니다.'))return;await run(async()=>{const {data,error}=await client.rpc('poca_admin_logout',{target:person.id});if(error)throw error;participants=data;renderParticipants();toast('강제 로그아웃했습니다.');});})();});
+
+const recordCard=c=>`<p><strong>${esc(c?.name || '포카')}</strong> · ${esc(c?.qty ?? 1)}장<small class="muted"> ${c?metadata(c):''}</small></p>`;
+async function loadRecords(more=false){
+ if(!current.admin)return;const owner=current.account.id,token=++recordRequest,page=more?recordPage+1:0;if(!more){recordQuery=$('#recordsSearch').value.trim();$('#recordsList').replaceChildren();}$('#recordsMore').disabled=true;$('#recordsStatus').textContent='불러오는 중';
+ try{const {data,error}=await client.rpc('poca_admin_records',{section:recordSection,query:recordQuery,page});if(token!==recordRequest || !current.admin || current.account?.id!==owner)return;if(error)throw error;
+ const html=data.rows.map(r=>recordSection==='listings'?`<article class="match"><h3>${esc(r.nickname)}님 · #${esc(r.exchangeNo)}</h3><small>${esc(r.day)} · ${esc(r.region)}</small>${r.give.map(recordCard).join('')}</article>`:`<article class="match"><h3>${esc(r.fromNick)} ↔ ${esc(r.toNick)}</h3><small>${esc(r.room)} · ${esc(r.region || '')}</small><p>${esc(r.fromNick)}님이 준 포카</p>${recordCard(r.give)}<p>${esc(r.toNick)}님이 준 포카</p>${recordCard(r.receive)}<small>완료 ${esc(r.completedAt?new Date(r.completedAt).toLocaleString('ko-KR'):'기록 없음')}</small></article>`).join('');
+ $('#recordsList').insertAdjacentHTML('beforeend',html);recordPage=page;$('#recordsMore').hidden=!data.hasMore;$('#recordsStatus').textContent=$('#recordsList').children.length+'건'+(data.hasMore?' · 더 보기 가능':'');
+ }catch(e){if(token===recordRequest)$('#recordsStatus').textContent=e.message;}finally{if(token===recordRequest)$('#recordsMore').disabled=false;}
+}
+$('#adminRecords').onclick=()=>{$('#recordsDialog').showModal();void loadRecords();};$('#closeRecords').onclick=()=>$('#recordsDialog').close();$('#recordsSearchForm').onsubmit=e=>{e.preventDefault();void loadRecords();};$('#recordsMore').onclick=()=>void loadRecords(true);
+$$('[data-record-section]').forEach(b=>b.onclick=()=>{recordSection=b.dataset.recordSection;$$('[data-record-section]').forEach(el=>el.classList.toggle('on',el===b));void loadRecords();});
