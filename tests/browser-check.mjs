@@ -11,7 +11,7 @@ await db.exec(readFileSync('supabase/migrations/002_shared_catalog.sql','utf8'))
 await db.exec('create schema extensions');
 await db.exec(readFileSync('supabase/migrations/003_spec.sql','utf8'));
 await db.exec(readFileSync('supabase/migrations/004_member_catalog.sql','utf8'));
-for(const f of ['005_catalog_edit','006_reset_selections','007_chat'])await db.exec(readFileSync(`supabase/migrations/${f}.sql`,'utf8'));
+for(const f of ['005_catalog_edit','006_reset_selections','007_chat','008_signup_device'])await db.exec(readFileSync(`supabase/migrations/${f}.sql`,'utf8'));
 const browser = await chromium.launch({channel:process.env.BROWSER_CHANNEL || 'chrome',headless:true});
 let queue=Promise.resolve();const errors=[];
 const X='10000000-0000-0000-0000-000000000001',Y='10000000-0000-0000-0000-000000000002',Z='10000000-0000-0000-0000-000000000003';
@@ -21,7 +21,7 @@ async function user(id){
  await page.route('**/app.js*',async route=>{const response=await route.fetch();let body=await response.text();body=body.replace('const url = import.meta.env.VITE_SUPABASE_URL, publicKey = import.meta.env.VITE_SUPABASE_PUBLISHABLE_KEY;',"const url = 'https://local-test.supabase.co', publicKey = 'test-key';");await route.fulfill({response,body});});
  await page.route('https://local-test.supabase.co/**',async route=>{
   const url=new URL(route.request().url());
-  if(url.pathname.startsWith('/auth/')){const token=[{alg:'HS256',typ:'JWT'},{sub:id,exp:Math.floor(Date.now()/1000)+3600,role:'authenticated'},'signature'].map(v=>typeof v==='string'?v:Buffer.from(JSON.stringify(v)).toString('base64url')).join('.');await route.fulfill({json:{access_token:token,refresh_token:'test-refresh',expires_in:3600,token_type:'bearer',user:{id,aud:'authenticated',role:'authenticated',is_anonymous:true}}});return;}
+  if(url.pathname.startsWith('/auth/')){if(url.pathname.endsWith('/signup') && (await db.query('select 1 from poca3_accounts where owner=$1',[id])).rows.length){id=crypto.randomUUID();await db.query('insert into auth.users values($1)',[id]);}const token=[{alg:'HS256',typ:'JWT'},{sub:id,exp:Math.floor(Date.now()/1000)+3600,role:'authenticated'},'signature'].map(v=>typeof v==='string'?v:Buffer.from(JSON.stringify(v)).toString('base64url')).join('.');await route.fulfill({json:{access_token:token,refresh_token:'test-refresh',expires_in:3600,token_type:'bearer',user:{id,aud:'authenticated',role:'authenticated',is_anonymous:true}}});return;}
   const task=queue.then(async()=>{
    try{
     await db.query("select set_config('request.jwt.claim.sub',$1,false)",[id]);
@@ -54,6 +54,8 @@ try{
  await refresh(a);await a.locator('[data-tab="matches"]').click();await a.locator('[data-trade-action="accept"]').click();await a.locator('[data-trade-action="complete"]').click();
  await refresh(b);await b.locator('[data-confirm-trade]').click();await b.locator('#confirmYes').click();await b.locator('[data-tab="register"]').click();await b.locator('#giveN').filter({hasText:'1장'}).waitFor();
  await a.locator('[data-tab="register"]').click();await a.locator('[data-action="here"]').click();await a.locator('#hereDialog').waitFor();assert.match(await a.locator('#hereNumber').textContent(),/#/);await a.locator('#closeHere').click();
+ await a.locator('#logoutBtn').click();await a.locator('#loginPanel').waitFor();await login(a,'원이러버',false);await a.locator('[data-tab="history"]').click();await a.locator('#historyList').getByText('교환 완료',{exact:true}).waitFor();
+ await a.locator('#logoutBtn').click();await a.locator('#loginPanel').waitFor();await login(a,'새로운계정');
  await a.locator('#logoutBtn').click();await a.locator('#loginPanel').waitFor();await login(a,'원이러버',false);await a.locator('[data-tab="history"]').click();await a.locator('#historyList').getByText('교환 완료',{exact:true}).waitFor();
  await a.locator('[data-tab="catalog"]').click();assert.equal(await a.locator('#addBtn').isVisible(),true);
 

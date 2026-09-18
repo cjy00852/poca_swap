@@ -342,7 +342,13 @@ async function login(register){
  const nickname=$('#loginNick').value.trim(),pin=$('#loginPin').value;
  const beforeLogin=!current.account?structuredClone(draft):null;
  busy=true;++refreshSequence;render();$('#loginError').textContent='';
- try{const {data,error}=await client.rpc('poca3_login',{nickname,pin,register});if(error || data?.error)throw Error(error?.message || data.error);++refreshSequence;initialized=false;apply(data);if(beforeLogin && !data.me?.give?.length && Object.keys(beforeLogin.give).length){draft=beforeLogin;saveDraft();render();}$('#loginPin').value='';toast('등록정보와 거래내역을 불러왔어요.');}
+ try{let {data,error}=await client.rpc('poca3_login',{nickname,pin,register});
+ if(register && !error && data?.code==='DEVICE_ACCOUNT_EXISTS'){
+  const signed=await client.auth.signInAnonymously();if(signed.error)throw signed.error;
+  userId=signed.data.user.id;
+  ({data,error}=await client.rpc('poca3_login',{nickname,pin,register}));
+ }
+ if(error || data?.error)throw Error(error?.message || data.error);++refreshSequence;initialized=false;apply(data);if(beforeLogin && !data.me?.give?.length && Object.keys(beforeLogin.give).length){draft=beforeLogin;saveDraft();render();}$('#loginPin').value='';toast('등록정보와 거래내역을 불러왔어요.');}
  catch(e){$('#loginError').textContent=e.message;}
  finally{busy=false;render();}
 }
