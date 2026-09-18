@@ -10,7 +10,7 @@ let chat;
 let current = emptyState, draft = { give:{}, want:{}, conditions:{} }, mode = 'give';
 let client, userId, channel, subscriptionKey, ready = false, busy = false, initialized = false;
 let refreshSequence = 0, hereIndex = 0;
-let photoData = '', photoLoading = false, uploadedPhoto = '', importId = null;
+let photoData = '', photoLoading = false, uploadedPhoto = '';
 let generatedName = '';
 let editingId=null,lastDeletedId=null;
 let catalogColumns=Number(readLocal('pocaCatalogColumns',3));if(![3,4,5,6].includes(catalogColumns))catalogColumns=3;
@@ -25,9 +25,6 @@ const normalize = value => value.normalize('NFKC').replace(/\s+/g,'').toLowerCas
 const sum = items => Object.values(items).reduce((a,b) => a + Number(b), 0);
 const cardById = id => current.catalog.find(c => c.id === id);
 function readLocal(key, fallback) { try { return JSON.parse(localStorage.getItem(key)) ?? fallback; } catch { return fallback; } }
-let legacy = readLocal('pocaDraftV2', {cards:[]}).cards || [];
-legacy = legacy.filter(c => typeof c.name === 'string' && typeof c.img === 'string' && !/^포카 [1-5]$/.test(c.name));
-const imported = new Set(readLocal('pocaImportedCatalog', []));
 function toast(message) {
  $('#toast').textContent = message; $('#toast').classList.add('show');
  clearTimeout(toast.timer); toast.timer = setTimeout(() => $('#toast').classList.remove('show'), 4500);
@@ -73,8 +70,6 @@ function renderCatalog() {
  const total = sum(draft.give) + candidateCount;
  $('#selectionCount').textContent = total ? `내놓아요 ${sum(draft.give)}장 · 선택 후보 ${candidateCount}개` : '도감에서 교환할 포카를 골라주세요';
  $('#addBtn').hidden = !current.account; $('#addBtn').disabled = !ready || busy;
- $('#legacyPanel').hidden = !current.account || !legacy.some(c => !imported.has(c.id));
- $('#legacyCards').innerHTML = legacy.filter(c => !imported.has(c.id)).map((c,i) => `<button data-import="${esc(c.id)}">${photo(c)}${esc(c.name)}<br>도감에 가져오기</button>`).join('');
 }
 function renderSelections() {
  $('#giveN').textContent=`${sum(draft.give)}장`;
@@ -137,7 +132,7 @@ function render() {
 }
 async function loadPhotos() {
  if (!client || photoRequest) return;
- const cards = [...current.catalog, ...current.trades.flatMap(t => [t.give,t.receive]), ...legacy];
+ const cards = [...current.catalog, ...current.trades.flatMap(t => [t.give,t.receive])];
  const paths = [...new Set(cards.map(c => c.img).filter(p => p && !p.startsWith('images/') && !p.startsWith('data:') && (!photoURLs.has(p) || photoURLs.get(p).expires < Date.now())))];
  if (!paths.length) return;
  photoRequest = true;
@@ -254,7 +249,6 @@ document.addEventListener('click',e=>{
  if(b.dataset.tradeAction)void run(async()=>{await action(b.dataset.tradeAction,{id:b.dataset.tradeId});toast('약속 상태를 반영했어요.');});
  if(b.dataset.step)changeQty(b.dataset.kind,b.dataset.id,(draft[b.dataset.kind][b.dataset.id]||1)+Number(b.dataset.step));
  if(b.dataset.remove && !busy){delete draft[b.dataset.kind][b.dataset.remove];delete draft.conditions[b.dataset.remove];saveDraft();renderCatalog();renderSelections();}
- if(b.dataset.import && !busy)openEditor(legacy.find(c=>c.id===b.dataset.import));
  if(b.dataset.request!==undefined && !busy){const m=current.matches[Number(b.dataset.request)];void run(async()=>{await action('request',{peerId:m.peerId,giveId:m.give.id,receiveId:m.receive.id});toast('15분간 1장씩 예약하고 상대방에게 약속을 요청했어요.');});}
  if(b.dataset.confirmTrade)void(async()=>{if(await confirm('교환을 완료했나요?','양쪽의 보유수량이 1장씩 줄어들고 거래 내역에 남아요.'))void run(async()=>{await action('confirm',{id:b.dataset.confirmTrade});toast('교환 완료! 남은 수량과 거래 내역을 반영했어요.');});})();
  if(b.dataset.cancelTrade)void run(async()=>{await action('cancel',{id:b.dataset.cancelTrade});toast('완료 요청을 취소했어요.');});
@@ -269,7 +263,7 @@ function openEditor(old,editing=false) {
  ++refreshSequence;
  editingId=editing?old.id:null;
  if(!current.account)return; editorMembers=[];
- importId=editing?null:old?.id || null;photoData=old?.img || '';uploadedPhoto='';generatedName='';$('#cardForm').reset();$('#editorError').textContent='';
+ photoData=old?.img || '';uploadedPhoto='';generatedName='';$('#cardForm').reset();$('#editorError').textContent='';
  editorMembers=editing?[...(old.members || [])]:[];renderMemberEditor();$('#catalogEvent').value=editing?old.event:'';$('#catalogKind').value=editing?old.kind:'';$('#editorTitle').textContent=editing?'도감 사진 · 정보 수정':'공용 도감에 추가';$('#saveCard').textContent=editing?'수정 저장':'공용 도감에 저장';$('#cardName').value=old?.name || '';
  const events=[...new Set(current.catalog.map(c=>c.event))].sort((a,b)=>a.localeCompare(b,'ko'));
  $('#existingEvent').innerHTML='<option value="">직접 입력</option>'+events.map(event=>`<option value="${esc(event)}">${esc(event)}</option>`).join('');$('#existingEvent').value=editing?old.event:'';
@@ -319,7 +313,6 @@ $('#cardForm').onsubmit=e=>{
     }
    }
    if(editingId)await manageCatalog('edit',{...info,id:editingId,img:uploadedPhoto});else await action('catalog_add',{...info,img:uploadedPhoto});
-   if(importId){imported.add(importId);try{localStorage.setItem('pocaImportedCatalog',JSON.stringify([...imported]));}catch{}}
    // Catalog registration does not add a personal offer.
    saveDraft();$('#editor').close();$('#search').value='';$('#eventFilter').value='';$('#kindFilter').value='';$('#memberFilter').value='';filterMember='';render();toast('공용 도감에 저장했어요. 사진과 이름은 계속 남아요.');
   }catch(error){$('#editorError').textContent=error.message;}
