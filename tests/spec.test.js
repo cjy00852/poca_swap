@@ -15,7 +15,7 @@ test('spec integration: PIN recovery, member catalog, conditions, reservations, 
  const publish=async(id,target,qty=2)=>act('publish',{give:[{id,qty}],conditions:{[id]:{ids:[target],members:[],any:false}},revision:(await state()).me.revision});
  try{
  await db.exec(bootstrap);await db.exec('create schema extensions');
- for(const file of ['supabase/schema.sql','supabase/migrations/002_shared_catalog.sql','supabase/migrations/003_spec.sql','supabase/migrations/004_member_catalog.sql','supabase/migrations/005_catalog_edit.sql','supabase/migrations/006_reset_selections.sql','supabase/migrations/007_chat.sql','supabase/migrations/008_signup_device.sql','supabase/migrations/009_login_wait.sql','supabase/migrations/010_remove_login_cooldown.sql','supabase/migrations/011_next_features.sql'])await db.exec(readFileSync(file,'utf8'));
+ for(const file of ['supabase/schema.sql','supabase/migrations/002_shared_catalog.sql','supabase/migrations/003_spec.sql','supabase/migrations/004_member_catalog.sql','supabase/migrations/005_catalog_edit.sql','supabase/migrations/006_reset_selections.sql','supabase/migrations/007_chat.sql','supabase/migrations/008_signup_device.sql','supabase/migrations/009_login_wait.sql','supabase/migrations/010_remove_login_cooldown.sql','supabase/migrations/011_next_features.sql','supabase/migrations/012_admin_participants.sql'])await db.exec(readFileSync(file,'utf8'));
  await user(A);assert.equal((await state()).account,null);await assert.rejects(()=>act('join',{}));
  assert.ok((await login('A','1234',true)).account);await act('join',{day:'2026-09-18',region:'서울'});await publish(X,Y);
  await assert.rejects(()=>db.query('select poca2_action($1,$2)',['leave',{}]));await assert.rejects(()=>db.query('select * from poca3_accounts'));
@@ -60,6 +60,10 @@ test('spec integration: PIN recovery, member catalog, conditions, reservations, 
  assert.equal((await state()).trades[0].status,'completed');
  await user(C);await act('logout');assert.ok((await login('새가입','1234',true)).account);
  assert.equal((await login('A')).account.id,A);
+ await assert.rejects(()=>db.query('select poca_admin_participants()'));
+ await db.exec(`reset role;insert into poca3_admins values('${A}')`);await user(C);
+ const roster=(await db.query('select poca_admin_participants() as data')).rows[0].data;assert.ok(roster.some(p=>p.nickname==='B'));assert.ok(roster.every(p=>Object.keys(p).sort().join(',')==='day,exchangeNo,nickname,region'));
+ await user(B);await assert.rejects(()=>db.query('select poca_admin_participants()'));await user(C);
  for(let i=0;i<8;i++)assert.match((await login('A','0000')).error,/닉네임 또는 PIN/);
  assert.equal((await login('A')).account.id,A);
  await db.exec("reset role;insert into poca3_login_limits(key,failures,blocked_until) values('a',5,now()+interval '15 minutes') on conflict(key) do update set blocked_until=excluded.blocked_until");await user(C);

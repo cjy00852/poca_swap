@@ -11,7 +11,7 @@ await db.exec(readFileSync('supabase/migrations/002_shared_catalog.sql','utf8'))
 await db.exec('create schema extensions');
 await db.exec(readFileSync('supabase/migrations/003_spec.sql','utf8'));
 await db.exec(readFileSync('supabase/migrations/004_member_catalog.sql','utf8'));
-for(const f of ['005_catalog_edit','006_reset_selections','007_chat','008_signup_device','009_login_wait','010_remove_login_cooldown','011_next_features'])await db.exec(readFileSync(`supabase/migrations/${f}.sql`,'utf8'));
+for(const f of ['005_catalog_edit','006_reset_selections','007_chat','008_signup_device','009_login_wait','010_remove_login_cooldown','011_next_features','012_admin_participants'])await db.exec(readFileSync(`supabase/migrations/${f}.sql`,'utf8'));
 const browser = await chromium.launch({channel:process.env.BROWSER_CHANNEL || 'chrome',headless:true});
 let queue=Promise.resolve();const errors=[];
 const X='10000000-0000-0000-0000-000000000001',Y='10000000-0000-0000-0000-000000000002',Z='10000000-0000-0000-0000-000000000003';

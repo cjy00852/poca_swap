@@ -7,6 +7,7 @@ const url = import.meta.env.VITE_SUPABASE_URL, publicKey = import.meta.env.VITE_
 const configured = /^https:\/\//.test(url || '') && !!publicKey && !url.includes('YOUR_PROJECT');
 const emptyState = { me:null, catalog:[], matches:[], listings:[], trades:[], count:0 };
 let chat;
+let participants=[],participantRequest=0;
 let notifiedOwner='',seenMatches=new Set(),alertKey='',expiryRefresh=0;
 let current = emptyState, draft = { give:{}, want:{}, conditions:{} }, mode = 'give';
 let client, userId, channel, subscriptionKey, ready = false, busy = false, initialized = false;
@@ -119,7 +120,8 @@ function render() {
  $('#accountName').textContent=current.account?`${current.account.nickname}님`:'';
  $('#loginBtn').disabled=$('#signupBtn').disabled=busy || !ready;
  $('#nick').readOnly=true;$('#nick').value=current.account?.nickname || '';
- $('#logoutBtn').disabled=busy;
+ $('#logoutBtn').disabled=busy;$('#adminParticipants').hidden=!current.admin;
+ if(!current.admin){participants=[];++participantRequest;$('#participantList').replaceChildren();if($('#participantsDialog').open)$('#participantsDialog').close();}
  $('#joinForm').hidden = joined; $('#venue').hidden = !joined;
  $('#joinBtn').disabled = !ready || busy || !current.account; $('#leaveBtn').disabled = busy;
  $('#venueName').textContent = [current.me?.day,current.me?.region].filter(Boolean).join(' · ');
@@ -384,3 +386,7 @@ function updateCountdowns(){
  if(expired && Date.now()-expiryRefresh>5000){expiryRefresh=Date.now();void refresh();}
 }
 setInterval(updateCountdowns,1000);
+
+function renderParticipants(){const q=normalize($('#participantSearch').value);const rows=participants.filter(p=>normalize([p.nickname,p.day,p.region].join(' ')).includes(q));$('#participantCount').textContent=rows.length+'명';$('#participantList').innerHTML=rows.map(p=>`<article class="participant"><strong>${esc(p.nickname)}</strong><span>교환번호 #${esc(p.exchangeNo)}</span><small>${esc(p.day)} · ${esc(p.region)}</small></article>`).join('') || '<p class="muted">참여자가 없습니다.</p>';}
+async function loadParticipants(){if(!current.admin)return;const owner=current.account.id,request=++participantRequest;$('#refreshParticipants').disabled=true;$('#participantCount').textContent='불러오는 중';try{const {data,error}=await client.rpc('poca_admin_participants');if(request!==participantRequest || current.account?.id!==owner || !current.admin)return;if(error)throw error;participants=data;renderParticipants();}catch(e){if(request===participantRequest){participants=[];$('#participantList').replaceChildren();$('#participantCount').textContent=e.message;}}finally{if(request===participantRequest)$('#refreshParticipants').disabled=false;}}
+$('#adminParticipants').onclick=()=>{$('#participantsDialog').showModal();void loadParticipants();};$('#closeParticipants').onclick=()=>$('#participantsDialog').close();$('#refreshParticipants').onclick=()=>void loadParticipants();$('#participantSearch').oninput=renderParticipants;
