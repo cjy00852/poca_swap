@@ -11,7 +11,7 @@ await db.exec(readFileSync('supabase/migrations/002_shared_catalog.sql','utf8'))
 await db.exec('create schema extensions');
 await db.exec(readFileSync('supabase/migrations/003_spec.sql','utf8'));
 await db.exec(readFileSync('supabase/migrations/004_member_catalog.sql','utf8'));
-for(const f of ['005_catalog_edit','006_reset_selections','007_chat','008_signup_device','009_login_wait','010_remove_login_cooldown'])await db.exec(readFileSync(`supabase/migrations/${f}.sql`,'utf8'));
+for(const f of ['005_catalog_edit','006_reset_selections','007_chat','008_signup_device','009_login_wait','010_remove_login_cooldown','011_next_features'])await db.exec(readFileSync(`supabase/migrations/${f}.sql`,'utf8'));
 const browser = await chromium.launch({channel:process.env.BROWSER_CHANNEL || 'chrome',headless:true});
 let queue=Promise.resolve();const errors=[];
 const X='10000000-0000-0000-0000-000000000001',Y='10000000-0000-0000-0000-000000000002',Z='10000000-0000-0000-0000-000000000003';
@@ -42,7 +42,7 @@ async function user(id){
  await page.goto(process.env.TEST_URL || 'http://127.0.0.1:5173');await page.locator('#catalogCount').filter({hasText:'전체 5종'}).waitFor();return page;
 }
 async function refresh(page){await page.evaluate(()=>document.dispatchEvent(new Event('visibilitychange')));}
-async function join(page,nickname){await page.locator('[data-tab="register"]').click();await page.locator('#day').fill('2026-09-17');await page.locator('#joinBtn').click();await page.locator('#venue').waitFor();}
+async function join(page,nickname){await page.locator('[data-tab="register"]').click();await page.locator('#day').fill('2026-09-17');await page.locator('#region').fill('서울 더현대');await page.locator('#joinBtn').click();await page.locator('#venue').waitFor();}
 async function select(page,type,id){await page.locator('[data-tab="catalog"]').click();await page.locator(`[data-mode="${type}"]`).click();await page.locator(`[data-pick="${id}"]`).click();}
 async function qty(page,type,id,n){await page.locator('[data-tab="register"]').click();const input=page.locator(`[data-qty="${id}"][data-kind="${type}"]`);await input.fill(String(n));await input.press('Tab');}
 async function login(page,nickname,register=true){await page.locator('#loginNick').fill(nickname);await page.locator('#loginPin').fill('1234');await page.locator(register?'#signupBtn':'#loginBtn').click();await page.locator('#accountPanel').waitFor();}
@@ -50,17 +50,19 @@ try{
  const a=await user('00000000-0000-0000-0000-000000000001'),b=await user('00000000-0000-0000-0000-000000000002');
  await login(a,'원이러버');await login(b,'제나러버');await join(a);await join(b);
  await select(a,'give',X);await qty(a,'give',X,2);await select(a,'want',Y);await a.locator('#goRegister').click();await a.locator('#publishBtn').click();
- await select(b,'give',Y);await qty(b,'give',Y,2);await select(b,'want',X);await b.locator('#goRegister').click();await b.locator('#publishBtn').click();await b.locator('[data-request]').waitFor();await b.locator('[data-request]').click();
- await refresh(a);await a.locator('[data-tab="matches"]').click();await a.locator('[data-trade-action="accept"]').click();await a.locator('[data-trade-action="complete"]').click();
- await refresh(b);await b.locator('[data-confirm-trade]').click();await b.locator('#confirmYes').click();await b.locator('[data-tab="register"]').click();await b.locator('#giveN').filter({hasText:'1장'}).waitFor();
+ await select(b,'give',Y);await qty(b,'give',Y,2);await select(b,'want',X);await b.locator('#goRegister').click();await b.locator('#publishBtn').click();await b.locator('[data-request]').waitFor();await b.locator('#matchAlert').waitFor();await b.locator('#matchAlert').click();await refresh(b);await b.waitForTimeout(100);assert.equal(await b.locator('#matchAlert').isVisible(),false);await b.locator('[data-request]').click();
+ await refresh(a);await a.locator('[data-tab="matches"]').click();await a.locator('[data-trade-action="accept"]').click();await a.locator('[data-trade-action="extend"]').click();await a.locator('[data-trade-action="extend"][disabled]').waitFor();await a.locator('[data-expires]').filter({hasText:'남은 시간'}).waitFor();await a.locator('[data-trade-action="complete"]').click();
+ await refresh(b);await b.locator('[data-tab="register"]').click();await b.locator('#giveN').filter({hasText:'1장'}).waitFor();
  await a.locator('[data-tab="register"]').click();await a.locator('[data-action="here"]').click();await a.locator('#hereDialog').waitFor();assert.match(await a.locator('#hereNumber').textContent(),/#/);await a.locator('#closeHere').click();
  await a.locator('#logoutBtn').click();await a.locator('#loginPanel').waitFor();await login(a,'원이러버',false);await a.locator('[data-tab="history"]').click();await a.locator('#historyList').getByText('교환 완료',{exact:true}).waitFor();
  await a.locator('#logoutBtn').click();await a.locator('#loginPanel').waitFor();await login(a,'새로운계정');
  await a.locator('#logoutBtn').click();await a.locator('#loginPanel').waitFor();await login(a,'원이러버',false);await a.locator('[data-tab="history"]').click();await a.locator('#historyList').getByText('교환 완료',{exact:true}).waitFor();
  await a.locator('[data-tab="catalog"]').click();assert.equal(await a.locator('#addBtn').isVisible(),true);
 
- await a.locator('#catalogColumns').selectOption('6');assert.equal(await a.locator('#cards').evaluate(el=>getComputedStyle(el).gridTemplateColumns.split(' ').length),6);
- await a.locator(`[data-edit-card="${Z}"]`).click();await a.locator('#cardName').fill('수정한 포카');
+ await a.locator('#catalogColumns').selectOption('6');assert.equal(await a.locator('.event-grid').first().evaluate(el=>getComputedStyle(el).gridTemplateColumns.split(' ').length),6);
+ await a.locator(`[data-edit-card="${Z}"]`).click();assert.equal(await a.locator('#cardName').inputValue(),'');await a.locator('#cardName').fill('수정한 포카');await a.locator('#catalogRelease').fill('첫 발매');
+ const eventBox=await a.locator('#existingEvent').boundingBox(),releaseBox=await a.locator('#existingRelease').boundingBox();assert.equal(eventBox.y,releaseBox.y);assert.ok(releaseBox.x>eventBox.x);
+
  await a.locator('#existingEvent').selectOption({label:'기존 포카'});assert.equal(await a.locator('#catalogEvent').inputValue(),'기존 포카');await a.locator('#existingKind').selectOption({label:'포카'});assert.equal(await a.locator('#catalogKind').inputValue(),'포카');await a.locator('#existingKind').focus();
  await a.evaluate(()=>{window.editorMutations=0;window.editorObserver=new MutationObserver(()=>window.editorMutations++);window.editorObserver.observe(document.querySelector('#eventOptions'),{childList:true});});
  await refresh(a);await a.waitForTimeout(300);

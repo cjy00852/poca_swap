@@ -15,20 +15,27 @@ test('spec integration: PIN recovery, member catalog, conditions, reservations, 
  const publish=async(id,target,qty=2)=>act('publish',{give:[{id,qty}],conditions:{[id]:{ids:[target],members:[],any:false}},revision:(await state()).me.revision});
  try{
  await db.exec(bootstrap);await db.exec('create schema extensions');
- for(const file of ['supabase/schema.sql','supabase/migrations/002_shared_catalog.sql','supabase/migrations/003_spec.sql','supabase/migrations/004_member_catalog.sql','supabase/migrations/005_catalog_edit.sql','supabase/migrations/006_reset_selections.sql','supabase/migrations/007_chat.sql','supabase/migrations/008_signup_device.sql','supabase/migrations/009_login_wait.sql','supabase/migrations/010_remove_login_cooldown.sql'])await db.exec(readFileSync(file,'utf8'));
+ for(const file of ['supabase/schema.sql','supabase/migrations/002_shared_catalog.sql','supabase/migrations/003_spec.sql','supabase/migrations/004_member_catalog.sql','supabase/migrations/005_catalog_edit.sql','supabase/migrations/006_reset_selections.sql','supabase/migrations/007_chat.sql','supabase/migrations/008_signup_device.sql','supabase/migrations/009_login_wait.sql','supabase/migrations/010_remove_login_cooldown.sql','supabase/migrations/011_next_features.sql'])await db.exec(readFileSync(file,'utf8'));
  await user(A);assert.equal((await state()).account,null);await assert.rejects(()=>act('join',{}));
- assert.ok((await login('A','1234',true)).account);await act('join',{day:'2026-09-18'});await publish(X,Y);
+ assert.ok((await login('A','1234',true)).account);await act('join',{day:'2026-09-18',region:'서울'});await publish(X,Y);
  await assert.rejects(()=>db.query('select poca2_action($1,$2)',['leave',{}]));await assert.rejects(()=>db.query('select * from poca3_accounts'));
  await assert.rejects(()=>act('catalog_add',{}));
- await user(B);await login('B','1234',true);await act('join',{day:'2026-09-18'});let s=await publish(Y,X);assert.equal(s.matches[0].mutual,true);
+ await user(B);await login('B','1234',true);await act('join',{day:'2026-09-18',region:'부산'});let s=await publish(Y,X);assert.equal(s.matches.length,0);assert.equal(s.listings.length,0);assert.equal(s.count,1);
+ await assert.rejects(()=>act('request',{peerId:A,giveId:Y,receiveId:X}));
+ await assert.rejects(()=>act('join',{day:'2026-09-18',region:'서울'}));
+ await act('leave');await act('join',{day:'2026-09-18',region:' 서울 '} );s=await publish(Y,X);assert.equal(s.matches[0].mutual,true);assert.equal(s.count,2);assert.equal(s.me.region,'서울');assert.ok(s.regions.includes('부산'));
+
  s=await act('request',{peerId:A,giveId:Y,receiveId:X});let t=s.trades[0];assert.equal(t.status,'awaiting');await assert.rejects(()=>act('accept',{id:t.id}));
- await user(A);await act('accept',{id:t.id});await act('complete',{id:t.id});await assert.rejects(()=>act('confirm',{id:t.id}));
- await user(B);s=await act('confirm',{id:t.id});assert.equal(s.me.give[0].qty,1);assert.equal(s.trades[0].status,'completed');await assert.rejects(()=>act('confirm',{id:t.id}));
+ await user(A);await act('accept',{id:t.id});const originalExpiry=t.expiresAt;
+ s=await act('extend',{id:t.id});assert.equal(new Date(s.trades[0].expiresAt)-new Date(originalExpiry),900000);assert.equal(s.trades[0].extended,true);
+ await user(C);await assert.rejects(()=>act('extend',{id:t.id}));await user(B);await assert.rejects(()=>act('extend',{id:t.id}));
+ await user(A);s=await act('complete',{id:t.id});assert.equal(s.me.give[0].qty,1);assert.equal(s.trades[0].status,'completed');await assert.rejects(()=>act('complete',{id:t.id}));
+ await user(B);s=await state();assert.equal(s.me.give[0].qty,1);assert.equal(s.trades[0].status,'completed');await assert.rejects(()=>act('confirm',{id:t.id}));
  await user(C);assert.ok((await login('A','9999')).error);s=await login('A');assert.equal(s.account.id,A);assert.equal(s.me.give[0].qty,1);assert.equal(s.trades[0].status,'completed');assert.equal((await db.query('select auth.uid() as id')).rows[0].id,C);
  s=await act('request',{peerId:B,giveId:X,receiveId:Y});t=s.trades.find(t=>t.status==='awaiting');assert.ok(t);assert.equal(s.matches.length,0);
  await db.exec("reset role; update poca2_trades set expires_at=now()-interval '1 second' where status='awaiting'");await user(C);s=await state();assert.equal(s.matches.length,1);assert.equal(s.trades.filter(t=>t.status==='awaiting').length,0);
  await user(C);await db.query("insert into storage.objects(bucket_id,name) values('poca-photos',$1)",[C+'/unit.jpg']);
- s=await act('catalog_add',{img:C+'/unit.jpg',name:'유닛 A',event:'팬미팅',kind:'MD',members:['원이','제나']});assert.deepEqual(s.catalog.find(c=>c.name==='유닛 A').members,['원이','제나']);
+ s=await act('catalog_add',{img:C+'/unit.jpg',name:'유닛 A',event:'팬미팅',kind:'MD',release:'새 발매',members:['원이','제나']});assert.deepEqual(s.catalog.find(c=>c.name==='유닛 A').members,['원이','제나']);assert.equal(s.catalog.find(c=>c.name==='유닛 A').release,'새 발매');
 
  const chat=async(action,input={})=>(await db.query('select poca_chat($1,$2::jsonb) as data',[action,JSON.stringify(input)])).rows[0].data;
  const manage=async(operation,input)=>(await db.query('select poca_catalog_manage($1,$2::jsonb) as data',[operation,JSON.stringify(input)])).rows[0].data;
@@ -39,11 +46,12 @@ test('spec integration: PIN recovery, member catalog, conditions, reservations, 
  await user(B);assert.equal((await chat('list')).rooms[0].unread,1);const received=await chat('messages',{id:room.id});await chat('read',{id:room.id,through:received.messages[0].seq});assert.equal((await chat('list')).rooms[0].unread,0);
  const D='00000000-0000-0000-0000-000000000004';await db.exec(`reset role;insert into auth.users values('${D}')`);await user(D);await login('D','1234',true);
  assert.equal((await chat('list')).rooms.length,0);await assert.rejects(()=>chat('messages',{id:room.id}));await assert.rejects(()=>chat('send',{id:room.id,messageId:'90000000-0000-0000-0000-000000000002',body:'침입'}));await assert.rejects(()=>db.query('select * from poca_messages'));
- await user(C);s=await manage('edit',{id:X,name:'수정 포카',event:'수정 행사',kind:'MD',members:['원이'],img:'images/poca_01.jpg'});assert.equal(s.me.give[0].name,'수정 포카');assert.equal(s.trades.find(t=>t.status==='completed').give.name,'포카 2');
+ await user(C);s=await manage('edit',{id:X,name:'수정 포카',event:'수정 행사',release:'수정 발매',kind:'MD',members:['원이'],img:'images/poca_01.jpg'});assert.equal(s.me.give[0].name,'수정 포카');assert.equal(s.me.give[0].release,'수정 발매');assert.equal(s.trades.find(t=>t.status==='completed').give.name,'포카 2');
  s=await manage('delete',{id:X});assert.ok(!s.catalog.some(c=>c.id===X));assert.equal(s.me.give.length,0);assert.ok(s.trades.some(t=>t.status==='completed'));
  s=await manage('restore',{id:X});assert.ok(s.catalog.some(c=>c.id===X));await publish(X,Y);
  s=(await db.query('select poca_reset_selections($1,$2) as data',['want',(await state()).me.revision])).rows[0].data;assert.equal(s.me.give[0].qty,2);assert.deepEqual(s.me.conditions,{});
  s=(await db.query('select poca_reset_selections($1,$2) as data',['give',s.me.revision])).rows[0].data;assert.equal(s.me.give.length,0);assert.ok(s.trades.some(t=>t.status==='completed'));
+ await publish(X,Y,1);await user(B);await publish(Y,X,1);s=await act('request',{peerId:A,giveId:Y,receiveId:X});const last=s.trades.find(t=>t.status==='awaiting');await user(C);await act('accept',{id:last.id});s=await act('complete',{id:last.id});assert.deepEqual(s.me.give,[]);await user(B);assert.deepEqual((await state()).me.give,[]);await assert.rejects(()=>act('complete',{id:last.id}));await user(C);
  await act('leave');await act('logout');assert.equal((await state()).account,null);s=await login('A');assert.equal(s.trades[0].status,'completed');
  await user(A);await act('logout');
  assert.equal((await login('새가입','1234',true)).code,'DEVICE_ACCOUNT_EXISTS');
